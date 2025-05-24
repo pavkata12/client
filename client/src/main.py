@@ -58,7 +58,7 @@ class GamingCenterClient(QMainWindow):
         self.status_updater.session_started.connect(self.start_session)
         self.status_updater.session_ended.connect(self.end_session)
         self.kiosk_controller.process_blocked.connect(self.on_process_blocked)
-        self.kiosk_controller.kiosk_status_changed.connect(self.handle_kiosk_status_change)
+        self.kiosk_controller.kiosk_status_changed.connect(self.on_kiosk_status_change)
         self.kiosk_controller.admin_required.connect(self.show_admin_warning)
         # Connect new show_message signal for thread-safe UI
         if hasattr(self.kiosk_controller, 'show_message'):
