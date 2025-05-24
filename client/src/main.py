@@ -171,15 +171,74 @@ class GamingCenterClient(QMainWindow):
         """Update the status label in the UI thread."""
         self.status_label.setText(status)
 
+    def apply_gothic_style(self):
+        gothic_qss = """
+        QMainWindow, QWidget {
+            background-image: url('../resources/image.png');
+            background-repeat: no-repeat;
+            background-position: center;
+            background-attachment: fixed;
+            background-color: #18141a;
+        }
+        QGroupBox, QTabWidget::pane, QTableWidget, QLineEdit, QSpinBox, QComboBox, QDoubleSpinBox {
+            background: transparent;
+        }
+        QTabBar::tab {
+            background: #2d223a;
+            color: #e0d6eb;
+            border: 1px solid #3a2a4d;
+            border-radius: 6px 6px 0 0;
+            padding: 8px 20px;
+            font-weight: bold;
+        }
+        QTabBar::tab:selected {
+            background: #4b2e5c;
+            color: #fff;
+        }
+        QPushButton {
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #3a2a4d, stop:1 #18141a);
+            color: #e0d6eb;
+            border: 1px solid #6c4e7c;
+            border-radius: 6px;
+            padding: 6px 16px;
+            font-weight: bold;
+        }
+        QPushButton:hover {
+            background: #4b2e5c;
+            color: #fff;
+            border: 1px solid #a084ca;
+        }
+        QLabel#headingLabel {
+            font-family: 'UnifrakturCook', 'Old English Text MT', 'Segoe UI', serif;
+            font-size: 24px;
+            color: #a084ca;
+            font-weight: bold;
+        }
+        QHeaderView::section {
+            background: #2d223a;
+            color: #a084ca;
+            border: 1px solid #3a2a4d;
+            font-weight: bold;
+        }
+        """
+        self.setStyleSheet(gothic_qss)
+
     def setup_ui(self):
-        """Setup the main window UI."""
+        self.apply_gothic_style()
         self.setWindowTitle(WINDOW_TITLE)
         self.setMinimumSize(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT)
-
-        # Create central widget and main layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
+        # Add a gothic heading label at the top
+        heading = QLabel("Gaming Center Client")
+        heading.setObjectName("headingLabel")
+        heading.setAlignment(Qt.AlignCenter)
+        font = heading.font()
+        font.setPointSize(24)
+        font.setBold(True)
+        heading.setFont(font)
+        layout.insertWidget(0, heading)
 
         # Server connection controls
         server_layout = QHBoxLayout()
