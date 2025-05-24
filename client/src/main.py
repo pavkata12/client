@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt, QTimer, Signal, Slot, QObject
 from PySide6.QtGui import QIcon, QFont
 import time
 import logging
+from zeroconf import Zeroconf, ServiceBrowser
 
 # Add the src directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -21,7 +22,7 @@ from config import (
     DEFAULT_SERVER_IP, DEFAULT_SERVER_PORT,
     DATETIME_FORMAT
 )
-from kiosk_manager import KioskManager
+from kiosk_controller import KioskController
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,32 +32,52 @@ class StatusUpdater(QObject):
     session_started = Signal(int, int)  # session_id, duration
     session_ended = Signal(bool)  # force_end
 
+class ServerDiscoveryListener:
+    def __init__(self, callback):
+        self.callback = callback
+    def add_service(self, zeroconf, type, name):
+        info = zeroconf.get_service_info(type, name)
+        if info:
+            ip = '.'.join(str(b) for b in info.addresses[0])
+            port = info.port
+            self.callback(ip, port)
+
 class GamingCenterClient(QMainWindow):
     def __init__(self):
         super().__init__()
         self.network = NetworkManager()
-        self.system_locker = SystemLocker()
         self.current_session = None
         self.status_updater = StatusUpdater()
-        self.kiosk_manager = KioskManager()
+        self.kiosk_controller = KioskController()
+        self.zeroconf = Zeroconf()
+        self.discovery_browser = None
         
         # Connect signals
         self.status_updater.status_changed.connect(self.update_status_label)
         self.status_updater.session_started.connect(self.start_session)
         self.status_updater.session_ended.connect(self.end_session)
-        self.kiosk_manager.process_blocked.connect(self.on_process_blocked)
-        self.kiosk_manager.kiosk_status_changed.connect(self.on_kiosk_status_changed)
+        self.kiosk_controller.process_blocked.connect(self.on_process_blocked)
+        self.kiosk_controller.kiosk_status_changed.connect(self.on_kiosk_status_changed)
+        self.kiosk_controller.admin_required.connect(self.show_admin_warning)
         
         self.setup_ui()
-        self.load_config()
         self.setup_network_handlers()
-        self.connect_to_server()
         self.setup_kiosk()
+
+        # Admin privilege check
+        if not self.kiosk_controller.is_admin:
+            self.show_admin_warning()
 
     def setup_network_handlers(self):
         """Setup network message handlers."""
         self.network.register_handler("start_session", self.handle_start_session)
         self.network.register_handler("end_session", self.handle_end_session)
+        self.network.register_handler("extend_session", self.handle_extend_session)
+        self.network.register_handler("pause_session", self.handle_pause_session)
+        self.network.register_handler("resume_session", self.handle_resume_session)
+        self.network.register_handler("lock_computer", self.handle_lock_computer)
+        self.network.register_handler("shutdown_computer", self.handle_shutdown_computer)
+        self.network.register_handler("maintenance_mode", self.handle_maintenance_mode)
         self.network.register_handler("computer_removed", self.handle_computer_removed)
         self.network.register_handler("connection_lost", self.handle_connection_lost)
 
@@ -78,6 +99,52 @@ class GamingCenterClient(QMainWindow):
             self.status_updater.session_ended.emit(force_end)
         except Exception as e:
             logger.error(f"Error handling end session: {e}")
+
+    def handle_extend_session(self, message):
+        """Handle session extension from server."""
+        try:
+            minutes = message.get('minutes', 0)
+            if self.current_session:
+                self.current_session['end_time'] += timedelta(minutes=minutes)
+                logger.info(f"Session extended by {minutes} minutes.")
+                QMessageBox.information(self, "Session Extended", f"Your session has been extended by {minutes} minutes.")
+        except Exception as e:
+            logger.error(f"Error handling extend session: {e}")
+
+    def handle_pause_session(self, message):
+        """Handle session pause from server."""
+        if self.current_session:
+            self.session_paused = True
+            self.status_label.setText("Session Paused")
+            QMessageBox.information(self, "Session Paused", "Your session has been paused by the administrator.")
+
+    def handle_resume_session(self, message):
+        """Handle session resume from server."""
+        if self.current_session:
+            self.session_paused = False
+            self.status_label.setText("Session Active")
+            QMessageBox.information(self, "Session Resumed", "Your session has been resumed by the administrator.")
+
+    def handle_lock_computer(self, message):
+        """Handle remote lock command from server."""
+        try:
+            import ctypes
+            ctypes.windll.user32.LockWorkStation()
+            QMessageBox.information(self, "Locked", "This computer has been locked by the administrator.")
+        except Exception as e:
+            logger.error(f"Error locking workstation: {e}")
+
+    def handle_shutdown_computer(self, message):
+        """Handle remote shutdown command from server."""
+        try:
+            os.system("shutdown /s /t 1")
+        except Exception as e:
+            logger.error(f"Error shutting down: {e}")
+
+    def handle_maintenance_mode(self, message):
+        """Handle remote maintenance mode command from server."""
+        QMessageBox.information(self, "Maintenance Mode", "This computer is now in maintenance mode. Please contact staff.")
+        self.setEnabled(False)
 
     def handle_computer_removed(self, message):
         """Handle computer removed message from server."""
@@ -108,6 +175,25 @@ class GamingCenterClient(QMainWindow):
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
 
+        # Server connection controls
+        server_layout = QHBoxLayout()
+        self.server_ip_input = QLineEdit()
+        self.server_ip_input.setPlaceholderText("Server IP Address")
+        self.server_port_input = QLineEdit()
+        self.server_port_input.setPlaceholderText("Server Port")
+        self.server_port_input.setText(str(DEFAULT_SERVER_PORT))
+        discover_btn = QPushButton("Discover Server")
+        discover_btn.clicked.connect(self.discover_server)
+        connect_btn = QPushButton("Connect")
+        connect_btn.clicked.connect(self.connect_to_server)
+        server_layout.addWidget(QLabel("Server IP:"))
+        server_layout.addWidget(self.server_ip_input)
+        server_layout.addWidget(QLabel("Port:"))
+        server_layout.addWidget(self.server_port_input)
+        server_layout.addWidget(discover_btn)
+        server_layout.addWidget(connect_btn)
+        layout.addLayout(server_layout)
+
         # Status section
         status_group = QGroupBox("Status")
         status_layout = QVBoxLayout(status_group)
@@ -128,9 +214,9 @@ class GamingCenterClient(QMainWindow):
         self.apps_list = QListWidget()
         self.apps_list.itemDoubleClicked.connect(self.launch_application)
         apps_layout.addWidget(self.apps_list)
-        
+
         # Add applications to the list
-        for app_name, app_info in self.kiosk_manager.get_allowed_apps().items():
+        for app_name, app_info in self.kiosk_controller.get_allowed_apps().items():
             item = QListWidgetItem(app_info['window_title'])
             item.setData(Qt.UserRole, app_name)
             self.apps_list.addItem(item)
@@ -148,27 +234,22 @@ class GamingCenterClient(QMainWindow):
 
     def setup_kiosk(self):
         """Setup kiosk mode manager."""
-        self.kiosk_manager = KioskManager()
-        self.kiosk_manager.process_blocked.connect(self.on_process_blocked)
-        self.kiosk_manager.kiosk_status_changed.connect(self.on_kiosk_status_changed)
-        
-        # Load allowed applications configuration
         config_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'allowed_apps.json')
-        self.kiosk_manager.load_allowed_apps(config_path)
+        self.kiosk_controller.load_allowed_apps(config_path)
 
     def toggle_kiosk_mode(self):
         """Toggle kiosk mode on/off."""
-        if not self.kiosk_manager.is_kiosk_mode:
-            self.kiosk_manager.start_kiosk_mode()
+        if not self.kiosk_controller.is_kiosk_mode:
+            self.kiosk_controller.start_kiosk_mode()
             self.kiosk_toggle_btn.setText("Disable Kiosk Mode")
         else:
-            self.kiosk_manager.stop_kiosk_mode()
+            self.kiosk_controller.stop_kiosk_mode()
             self.kiosk_toggle_btn.setText("Enable Kiosk Mode")
 
     def launch_application(self, item):
         """Launch the selected application."""
         app_name = item.data(Qt.UserRole)
-        if self.kiosk_manager.launch_allowed_app(app_name):
+        if self.kiosk_controller.launch_allowed_app(app_name):
             logger.info(f"Launched {app_name}")
         else:
             QMessageBox.warning(self, "Error", f"Failed to launch {app_name}")
@@ -185,35 +266,17 @@ class GamingCenterClient(QMainWindow):
         else:
             self.kiosk_toggle_btn.setText("Enable Kiosk Mode")
 
-    def load_config(self):
-        """Load configuration from file."""
-        config_path = os.path.join(os.path.dirname(__file__), '..', 'config.json')
-        try:
-            if os.path.exists(config_path):
-                with open(config_path, 'r') as f:
-                    config = json.load(f)
-                    self.server_ip_input.setText(config.get('server_ip', DEFAULT_SERVER_IP))
-                    self.server_port_input.setText(str(config.get('server_port', DEFAULT_SERVER_PORT)))
-            else:
-                self.server_ip_input.setText(DEFAULT_SERVER_IP)
-                self.server_port_input.setText(str(DEFAULT_SERVER_PORT))
-        except Exception as e:
-            logger.error(f"Error loading config: {e}")
-            self.server_ip_input.setText(DEFAULT_SERVER_IP)
-            self.server_port_input.setText(str(DEFAULT_SERVER_PORT))
+    def show_admin_warning(self):
+        QMessageBox.warning(self, "Administrator Required", "This application must be run as administrator for kiosk mode and security features to work correctly.")
 
-    def save_config(self):
-        """Save configuration to file."""
-        config_path = os.path.join(os.path.dirname(__file__), '..', 'config.json')
-        try:
-            config = {
-                'server_ip': self.server_ip_input.text(),
-                'server_port': int(self.server_port_input.text())
-            }
-            with open(config_path, 'w') as f:
-                json.dump(config, f)
-        except Exception as e:
-            logger.error(f"Error saving config: {e}")
+    def discover_server(self):
+        def on_found(ip, port):
+            self.server_ip_input.setText(ip)
+            self.server_port_input.setText(str(port))
+            QMessageBox.information(self, "Server Found", f"Discovered server at {ip}:{port}")
+            if self.discovery_browser:
+                self.discovery_browser.cancel()
+        self.discovery_browser = ServiceBrowser(self.zeroconf, "_gamingcenter._tcp.local.", ServerDiscoveryListener(on_found))
 
     def connect_to_server(self):
         """Connect to the server."""
@@ -223,7 +286,6 @@ class GamingCenterClient(QMainWindow):
             
             if self.network.connect(server_ip, server_port):
                 self.status_updater.status_changed.emit("Connected to server")
-                self.save_config()
             else:
                 self.status_updater.status_changed.emit("Failed to connect to server")
         except Exception as e:
@@ -233,6 +295,9 @@ class GamingCenterClient(QMainWindow):
     def update_status(self):
         """Update the status display."""
         if self.current_session:
+            if getattr(self, 'session_paused', False):
+                self.time_label.setText("Session paused")
+                return
             remaining = self.current_session['end_time'] - datetime.now()
             if remaining.total_seconds() > 0:
                 hours = int(remaining.total_seconds() // 3600)
@@ -253,7 +318,6 @@ class GamingCenterClient(QMainWindow):
             self.session_label.setText(f"Session {session_id} active")
             self.time_label.setText(f"Duration: {duration} hours")
             self.end_session_btn.setEnabled(True)
-            self.system_locker.start_monitoring()
             logger.info(f"Session {session_id} started successfully")
         except Exception as e:
             logger.error(f"Error starting session: {e}")
@@ -276,7 +340,6 @@ class GamingCenterClient(QMainWindow):
                 self.session_label.setText("No active session")
                 self.time_label.setText("")
                 self.end_session_btn.setEnabled(False)
-                self.system_locker.stop_monitoring()
                 logger.info("Session ended")
                 if force_end:
                     QMessageBox.information(self, "Session Ended", "Your session has been ended by the administrator.")
@@ -296,8 +359,8 @@ class GamingCenterClient(QMainWindow):
                 event.accept()
             else:
                 event.ignore()
-        elif self.kiosk_manager.is_kiosk_mode:
-            self.kiosk_manager.stop_kiosk_mode()
+        elif self.kiosk_controller.is_kiosk_mode:
+            self.kiosk_controller.stop_kiosk_mode()
             event.accept()
         else:
             event.accept()
