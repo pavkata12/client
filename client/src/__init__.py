@@ -1,0 +1,3 @@
+"""
+Gaming Center Client Package
+""" 
