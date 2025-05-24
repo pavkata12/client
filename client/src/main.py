@@ -63,6 +63,7 @@ class GamingCenterClient(QMainWindow):
         self.setup_ui()
         self.setup_network_handlers()
         self.setup_kiosk()
+        self.load_server_config()
 
         # Admin privilege check
         if not self.kiosk_controller.is_admin:
@@ -78,6 +79,8 @@ class GamingCenterClient(QMainWindow):
         self.network.register_handler("lock_computer", self.handle_lock_computer)
         self.network.register_handler("shutdown_computer", self.handle_shutdown_computer)
         self.network.register_handler("maintenance_mode", self.handle_maintenance_mode)
+        self.network.register_handler("enable_kiosk", self.handle_enable_kiosk)
+        self.network.register_handler("disable_kiosk", self.handle_disable_kiosk)
         self.network.register_handler("computer_removed", self.handle_computer_removed)
         self.network.register_handler("connection_lost", self.handle_connection_lost)
 
@@ -156,10 +159,13 @@ class GamingCenterClient(QMainWindow):
         self.status_label.setText("Connection lost - attempting to reconnect...")
         QTimer.singleShot(5000, self.reconnect_to_server)
 
-    def reconnect_to_server(self):
-        """Attempt to reconnect to the server."""
-        if not self.network.is_connected():
-            self.connect_to_server()
+    def handle_enable_kiosk(self, message):
+        self.kiosk_controller.start_kiosk_mode()
+        QMessageBox.information(self, "Kiosk Enabled", "Kiosk mode has been enabled by the administrator.")
+
+    def handle_disable_kiosk(self, message):
+        self.kiosk_controller.stop_kiosk_mode()
+        QMessageBox.information(self, "Kiosk Disabled", "Kiosk mode has been disabled by the administrator.")
 
     def update_status_label(self, status):
         """Update the status label in the UI thread."""
@@ -226,10 +232,6 @@ class GamingCenterClient(QMainWindow):
         # Control buttons
         button_layout = QHBoxLayout()
         
-        self.kiosk_toggle_btn = QPushButton("Enable Kiosk Mode")
-        self.kiosk_toggle_btn.clicked.connect(self.toggle_kiosk_mode)
-        button_layout.addWidget(self.kiosk_toggle_btn)
-        
         layout.addLayout(button_layout)
 
     def setup_kiosk(self):
@@ -238,13 +240,7 @@ class GamingCenterClient(QMainWindow):
         self.kiosk_controller.load_allowed_apps(config_path)
 
     def toggle_kiosk_mode(self):
-        """Toggle kiosk mode on/off."""
-        if not self.kiosk_controller.is_kiosk_mode:
-            self.kiosk_controller.start_kiosk_mode()
-            self.kiosk_toggle_btn.setText("Disable Kiosk Mode")
-        else:
-            self.kiosk_controller.stop_kiosk_mode()
-            self.kiosk_toggle_btn.setText("Enable Kiosk Mode")
+        pass  # No longer used
 
     def launch_application(self, item):
         """Launch the selected application."""
@@ -261,10 +257,6 @@ class GamingCenterClient(QMainWindow):
     def on_kiosk_status_changed(self, enabled):
         """Handle kiosk mode status change."""
         self.kiosk_status_label.setText(f"Kiosk Mode: {'Enabled' if enabled else 'Disabled'}")
-        if enabled:
-            self.kiosk_toggle_btn.setText("Disable Kiosk Mode")
-        else:
-            self.kiosk_toggle_btn.setText("Enable Kiosk Mode")
 
     def show_admin_warning(self):
         QMessageBox.warning(self, "Administrator Required", "This application must be run as administrator for kiosk mode and security features to work correctly.")
@@ -279,18 +271,37 @@ class GamingCenterClient(QMainWindow):
         self.discovery_browser = ServiceBrowser(self.zeroconf, "_gamingcenter._tcp.local.", ServerDiscoveryListener(on_found))
 
     def connect_to_server(self):
-        """Connect to the server."""
+        """Connect to the server and save the IP/port to config.json if successful."""
         try:
             server_ip = self.server_ip_input.text()
             server_port = int(self.server_port_input.text())
-            
             if self.network.connect(server_ip, server_port):
                 self.status_updater.status_changed.emit("Connected to server")
+                self.save_server_config(server_ip, server_port)
             else:
                 self.status_updater.status_changed.emit("Failed to connect to server")
         except Exception as e:
             logger.error(f"Error connecting to server: {e}")
             self.status_updater.status_changed.emit("Error connecting to server")
+
+    def save_server_config(self, ip, port):
+        config_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'client_config.json')
+        try:
+            with open(config_path, 'w') as f:
+                json.dump({'server_ip': ip, 'server_port': port}, f)
+        except Exception as e:
+            logger.error(f"Error saving server config: {e}")
+
+    def load_server_config(self):
+        config_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'client_config.json')
+        try:
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+                    self.server_ip_input.setText(config.get('server_ip', ''))
+                    self.server_port_input.setText(str(config.get('server_port', DEFAULT_SERVER_PORT)))
+        except Exception as e:
+            logger.error(f"Error loading server config: {e}")
 
     def update_status(self):
         """Update the status display."""
