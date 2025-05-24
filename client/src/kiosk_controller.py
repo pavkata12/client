@@ -17,6 +17,7 @@ class KioskController(QObject):
     process_blocked = Signal(str)
     kiosk_status_changed = Signal(bool)
     admin_required = Signal()
+    show_message = Signal(str, str)  # title, message
 
     def __init__(self):
         super().__init__()
@@ -132,6 +133,7 @@ class KioskController(QObject):
         self.is_kiosk_mode = True
         self.monitor_timer.start(1000)
         self.kiosk_status_changed.emit(True)
+        self.show_message.emit("Kiosk Enabled", "Kiosk mode has been enabled by the administrator.")
         logger.info("Kiosk mode enabled")
 
     def stop_kiosk_mode(self) -> None:
@@ -141,6 +143,7 @@ class KioskController(QObject):
         self.is_kiosk_mode = False
         self.monitor_timer.stop()
         self.kiosk_status_changed.emit(False)
+        self.show_message.emit("Kiosk Disabled", "Kiosk mode has been disabled by the administrator.")
         logger.info("Kiosk mode disabled")
 
     def launch_allowed_app(self, app_name: str) -> bool:

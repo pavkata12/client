@@ -4,13 +4,14 @@ import json
 from datetime import datetime, timedelta
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QLineEdit, QMessageBox, QGroupBox, QListWidget, QListWidgetItem
+    QPushButton, QLabel, QLineEdit, QMessageBox, QGroupBox, QListWidget, QListWidgetItem, QInputDialog
 )
 from PySide6.QtCore import Qt, QTimer, Signal, Slot, QObject
 from PySide6.QtGui import QIcon, QFont
 import time
 import logging
 from zeroconf import Zeroconf, ServiceBrowser
+import win32gui, win32con
 
 # Add the src directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -57,17 +58,28 @@ class GamingCenterClient(QMainWindow):
         self.status_updater.session_started.connect(self.start_session)
         self.status_updater.session_ended.connect(self.end_session)
         self.kiosk_controller.process_blocked.connect(self.on_process_blocked)
-        self.kiosk_controller.kiosk_status_changed.connect(self.on_kiosk_status_changed)
+        self.kiosk_controller.kiosk_status_changed.connect(self.handle_kiosk_status_change)
         self.kiosk_controller.admin_required.connect(self.show_admin_warning)
+        # Connect new show_message signal for thread-safe UI
+        if hasattr(self.kiosk_controller, 'show_message'):
+            self.kiosk_controller.show_message.connect(self.show_message_box)
         
         self.setup_ui()
         self.setup_network_handlers()
         self.setup_kiosk()
         self.load_server_config()
 
+        # Add a QTimer to update the session timer every second
+        self.status_timer = QTimer(self)
+        self.status_timer.timeout.connect(self.update_status)
+        self.status_timer.start(1000)
+
         # Admin privilege check
         if not self.kiosk_controller.is_admin:
             self.show_admin_warning()
+
+        self.focus_timer = QTimer(self)
+        self.focus_timer.timeout.connect(self.enforce_window_focus)
 
     def setup_network_handlers(self):
         """Setup network message handlers."""
@@ -313,9 +325,13 @@ class GamingCenterClient(QMainWindow):
         """Handle blocked process event."""
         logger.info(f"Blocked unauthorized process: {process_name}")
 
-    def on_kiosk_status_changed(self, enabled):
+    def on_kiosk_status_change(self, enabled):
         """Handle kiosk mode status change."""
         self.kiosk_status_label.setText(f"Kiosk Mode: {'Enabled' if enabled else 'Disabled'}")
+        if enabled:
+            self.enable_fullscreen_kiosk()
+        else:
+            self.disable_fullscreen_kiosk()
 
     def show_admin_warning(self):
         QMessageBox.warning(self, "Administrator Required", "This application must be run as administrator for kiosk mode and security features to work correctly.")
@@ -385,7 +401,7 @@ class GamingCenterClient(QMainWindow):
                 'start_time': datetime.now(),
                 'end_time': datetime.now() + timedelta(hours=duration)
             }
-            self.session_label.setText(f"Session {session_id} active")
+            self.status_label.setText(f"Session {session_id} active")
             self.time_label.setText(f"Duration: {duration} hours")
             self.end_session_btn.setEnabled(True)
             logger.info(f"Session {session_id} started successfully")
@@ -407,7 +423,7 @@ class GamingCenterClient(QMainWindow):
                 logger.error(f"Error ending session: {e}")
             finally:
                 self.current_session = None
-                self.session_label.setText("No active session")
+                self.status_label.setText("No active session")
                 self.time_label.setText("")
                 self.end_session_btn.setEnabled(False)
                 logger.info("Session ended")
@@ -415,25 +431,53 @@ class GamingCenterClient(QMainWindow):
                     QMessageBox.information(self, "Session Ended", "Your session has been ended by the administrator.")
 
     def closeEvent(self, event):
-        """Handle window close event."""
-        if self.current_session:
-            reply = QMessageBox.question(
-                self,
-                "Confirm Exit",
-                "There is an active session. Are you sure you want to exit?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
-            )
-            if reply == QMessageBox.Yes:
-                self.end_session()
-                event.accept()
-            else:
-                event.ignore()
-        elif self.kiosk_controller.is_kiosk_mode:
-            self.kiosk_controller.stop_kiosk_mode()
-            event.accept()
+        if getattr(self, 'kiosk_controller', None) and self.kiosk_controller.is_kiosk_mode:
+            event.ignore()
         else:
-            event.accept()
+            super().closeEvent(event)
+
+    def show_message_box(self, title, message):
+        QMessageBox.information(self, title, message)
+
+    def enable_fullscreen_kiosk(self):
+        self.showFullScreen()
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+        self.show()
+        self.focus_timer.start(1000)
+
+    def disable_fullscreen_kiosk(self):
+        self.showNormal()
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
+        self.show()
+        self.focus_timer.stop()
+
+    def enforce_window_focus(self):
+        hwnd = win32gui.FindWindow(None, self.windowTitle())
+        if hwnd:
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            win32gui.SetForegroundWindow(hwnd)
+
+    def changeEvent(self, event):
+        if event.type() == Qt.WindowStateChange and self.kiosk_controller.is_kiosk_mode:
+            if self.windowState() & Qt.WindowMinimized:
+                self.showNormal()
+                self.activateWindow()
+        super().changeEvent(event)
+
+    def keyPressEvent(self, event):
+        if (event.key() == Qt.Key_U and
+            event.modifiers() & Qt.ControlModifier and
+            event.modifiers() & Qt.AltModifier and
+            event.modifiers() & Qt.ShiftModifier):
+            if self.prompt_admin_password():
+                self.kiosk_controller.stop_kiosk_mode()
+                self.disable_fullscreen_kiosk()
+                QMessageBox.information(self, "Kiosk Disabled", "Kiosk mode has been disabled by admin.")
+        super().keyPressEvent(event)
+
+    def prompt_admin_password(self):
+        password, ok = QInputDialog.getText(self, "Admin Unlock", "Enter admin password:", QLineEdit.Password)
+        return ok and password == "your_admin_password"
 
 def main():
     app = QApplication(sys.argv)
