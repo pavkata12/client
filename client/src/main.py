@@ -341,11 +341,12 @@ class GamingCenterClient(QMainWindow):
             self.status_label.setText(f"Session {session_id} active")
             self.time_label.setText(f"Duration: {duration} hours")
             logger.info(f"Session {session_id} started successfully")
-            
             # Hide lock screen and show main window
             self.lock_screen.hide()
+            self.lock_screen.setWindowState(Qt.WindowNoState)
             self.show()
-            
+            self.raise_()
+            self.activateWindow()
         except Exception as e:
             logger.error(f"Error starting session: {e}")
 
