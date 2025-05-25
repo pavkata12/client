@@ -292,6 +292,11 @@ class GamingCenterClient(QMainWindow):
         try:
             with open(config_path, 'w') as f:
                 json.dump({'server_ip': ip, 'server_port': port}, f)
+            # Update both UIs
+            self.server_ip_input.setText(ip)
+            self.server_port_input.setText(str(port))
+            self.lock_screen.ip_input.setText(ip)
+            self.lock_screen.port_input.setText(str(port))
         except Exception as e:
             logger.error(f"Error saving server config: {e}")
 
@@ -301,8 +306,12 @@ class GamingCenterClient(QMainWindow):
             if os.path.exists(config_path):
                 with open(config_path, 'r') as f:
                     config = json.load(f)
-                    self.server_ip_input.setText(config.get('server_ip', ''))
-                    self.server_port_input.setText(str(config.get('server_port', DEFAULT_SERVER_PORT)))
+                    ip = config.get('server_ip', '')
+                    port = str(config.get('server_port', DEFAULT_SERVER_PORT))
+                    self.server_ip_input.setText(ip)
+                    self.server_port_input.setText(port)
+                    self.lock_screen.ip_input.setText(ip)
+                    self.lock_screen.port_input.setText(port)
         except Exception as e:
             logger.error(f"Error loading server config: {e}")
 
