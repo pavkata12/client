@@ -370,6 +370,9 @@ class GamingCenterClient(QMainWindow):
                 # Show lock screen and hide main window
                 self.hide()
                 self.lock_screen.show()
+                self.lock_screen.raise_()
+                self.lock_screen.activateWindow()
+                self.lock_screen.setWindowState(Qt.WindowNoState)
                 self.lock_screen.showFullScreen()
                 if force_end:
                     QMessageBox.information(self, "Session Ended", "Your session has been ended by the administrator.")
