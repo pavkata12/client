@@ -131,7 +131,6 @@ class KioskController(QObject):
             return
         self._block_system_tools()
         self.is_kiosk_mode = True
-        self.monitor_timer.start(1000)
         self.kiosk_status_changed.emit(True)
         self.show_message.emit("Kiosk Enabled", "Kiosk mode has been enabled by the administrator.")
         logger.info("Kiosk mode enabled")
@@ -141,7 +140,6 @@ class KioskController(QObject):
             return
         self._unblock_system_tools()
         self.is_kiosk_mode = False
-        self.monitor_timer.stop()
         self.kiosk_status_changed.emit(False)
         self.show_message.emit("Kiosk Disabled", "Kiosk mode has been disabled by the administrator.")
         logger.info("Kiosk mode disabled")

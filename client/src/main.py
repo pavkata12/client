@@ -59,9 +59,7 @@ class GamingCenterClient(QMainWindow):
         self.kiosk_controller.process_blocked.connect(self.on_process_blocked)
         self.kiosk_controller.kiosk_status_changed.connect(self.on_kiosk_status_change)
         self.kiosk_controller.admin_required.connect(self.show_admin_warning)
-        # Connect new show_message signal for thread-safe UI
-        if hasattr(self.kiosk_controller, 'show_message'):
-            self.kiosk_controller.show_message.connect(self.show_message_box)
+        self.kiosk_controller.show_message.connect(self.show_message_box)
         
         self.setup_ui()
         self.setup_network_handlers()
@@ -251,7 +249,6 @@ class GamingCenterClient(QMainWindow):
         font.setBold(True)
         heading.setFont(font)
         layout.insertWidget(0, heading)
-
         # Server connection controls
         server_layout = QHBoxLayout()
         self.server_ip_input = QLineEdit()
@@ -270,40 +267,27 @@ class GamingCenterClient(QMainWindow):
         server_layout.addWidget(discover_btn)
         server_layout.addWidget(connect_btn)
         layout.addLayout(server_layout)
-
         # Status section
         status_group = QGroupBox("Status")
         status_layout = QVBoxLayout(status_group)
-        
         self.status_label = QLabel("Status: Disconnected")
         self.time_label = QLabel("Time Remaining: --:--")
         self.kiosk_status_label = QLabel("Kiosk Mode: Disabled")
-        
         status_layout.addWidget(self.status_label)
         status_layout.addWidget(self.time_label)
         status_layout.addWidget(self.kiosk_status_label)
         layout.addWidget(status_group)
-
         # Applications section
         apps_group = QGroupBox("Applications")
         apps_layout = QVBoxLayout(apps_group)
-        
         self.apps_list = QListWidget()
         self.apps_list.itemDoubleClicked.connect(self.launch_application)
         apps_layout.addWidget(self.apps_list)
-
-        # Add applications to the list
         for app_name, app_info in self.kiosk_controller.get_allowed_apps().items():
             item = QListWidgetItem(app_info['window_title'])
             item.setData(Qt.UserRole, app_name)
             self.apps_list.addItem(item)
-        
         layout.addWidget(apps_group)
-
-        # Control buttons
-        button_layout = QHBoxLayout()
-        
-        layout.addLayout(button_layout)
 
     def setup_kiosk(self):
         """Setup kiosk mode manager."""
@@ -325,13 +309,15 @@ class GamingCenterClient(QMainWindow):
         """Handle blocked process event."""
         logger.info(f"Blocked unauthorized process: {process_name}")
 
+    @Slot(bool)
     def on_kiosk_status_change(self, enabled):
-        """Handle kiosk mode status change."""
         self.kiosk_status_label.setText(f"Kiosk Mode: {'Enabled' if enabled else 'Disabled'}")
         if enabled:
             self.enable_fullscreen_kiosk()
+            self.focus_timer.start(1000)
         else:
             self.disable_fullscreen_kiosk()
+            self.focus_timer.stop()
 
     def show_admin_warning(self):
         QMessageBox.warning(self, "Administrator Required", "This application must be run as administrator for kiosk mode and security features to work correctly.")
@@ -403,7 +389,6 @@ class GamingCenterClient(QMainWindow):
             }
             self.status_label.setText(f"Session {session_id} active")
             self.time_label.setText(f"Duration: {duration} hours")
-            self.end_session_btn.setEnabled(True)
             logger.info(f"Session {session_id} started successfully")
         except Exception as e:
             logger.error(f"Error starting session: {e}")
@@ -425,7 +410,6 @@ class GamingCenterClient(QMainWindow):
                 self.current_session = None
                 self.status_label.setText("No active session")
                 self.time_label.setText("")
-                self.end_session_btn.setEnabled(False)
                 logger.info("Session ended")
                 if force_end:
                     QMessageBox.information(self, "Session Ended", "Your session has been ended by the administrator.")
@@ -436,6 +420,7 @@ class GamingCenterClient(QMainWindow):
         else:
             super().closeEvent(event)
 
+    @Slot(str, str)
     def show_message_box(self, title, message):
         QMessageBox.information(self, title, message)
 
@@ -443,13 +428,11 @@ class GamingCenterClient(QMainWindow):
         self.showFullScreen()
         self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
         self.show()
-        self.focus_timer.start(1000)
 
     def disable_fullscreen_kiosk(self):
         self.showNormal()
         self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
         self.show()
-        self.focus_timer.stop()
 
     def enforce_window_focus(self):
         hwnd = win32gui.FindWindow(None, self.windowTitle())
