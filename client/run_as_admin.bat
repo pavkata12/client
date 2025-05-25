@@ -1,2 +1,5 @@
 @echo off
-powershell -Command "Start-Process python -ArgumentList 'src/main.py' -Verb RunAs -WorkingDirectory '%~dp0'" 
+set SCRIPT_PATH=%~dp0src\lock_screen_main.py
+set PYTHON_PATH=%~dp0..\venv\Scripts\python.exe
+
+powershell -Command "Start-Process '%PYTHON_PATH%' -ArgumentList '%SCRIPT_PATH%' -Verb RunAs -WorkingDirectory '%~dp0src'" 
