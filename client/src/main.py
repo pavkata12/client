@@ -4,10 +4,10 @@ import json
 from datetime import datetime, timedelta
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QLineEdit, QMessageBox, QGroupBox, QListWidget, QListWidgetItem, QInputDialog, QSystemTrayIcon, QMenu, QAction
+    QPushButton, QLabel, QLineEdit, QMessageBox, QGroupBox, QListWidget, QListWidgetItem, QInputDialog, QSystemTrayIcon, QMenu
 )
 from PySide6.QtCore import Qt, QTimer, Signal, Slot, QObject, QEvent
-from PySide6.QtGui import QIcon, QFont
+from PySide6.QtGui import QIcon, QFont, QAction
 import time
 import logging
 from zeroconf import Zeroconf, ServiceBrowser
