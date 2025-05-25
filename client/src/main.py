@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timedelta
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QLineEdit, QMessageBox, QGroupBox, QListWidget, QListWidgetItem, QInputDialog
+    QPushButton, QLabel, QLineEdit, QMessageBox, QGroupBox, QListWidget, QListWidgetItem, QInputDialog, QSystemTrayIcon, QMenu, QAction
 )
 from PySide6.QtCore import Qt, QTimer, Signal, Slot, QObject, QEvent
 from PySide6.QtGui import QIcon, QFont
@@ -62,6 +62,17 @@ class GamingCenterClient(QMainWindow):
         self.status_updater.status_changed.connect(self.update_status_label)
         self.status_updater.session_started.connect(self.start_session)
         self.status_updater.session_ended.connect(self.end_session)
+        
+        self.tray_icon = QSystemTrayIcon(QIcon("client/resources/image.png"), self)
+        tray_menu = QMenu()
+        restore_action = QAction("Restore", self)
+        restore_action.triggered.connect(self.show_normal_from_tray)
+        tray_menu.addAction(restore_action)
+        exit_action = QAction("Exit", self)
+        exit_action.triggered.connect(QApplication.quit)
+        tray_menu.addAction(exit_action)
+        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.activated.connect(self.on_tray_icon_activated)
         
         self.setup_ui()
         self.setup_network_handlers()
@@ -348,6 +359,8 @@ class GamingCenterClient(QMainWindow):
             self.show()
             self.raise_()
             self.activateWindow()
+            # Minimize to tray after 1 second
+            QTimer.singleShot(1000, self.showMinimized)
         except Exception as e:
             logger.error(f"Error starting session: {e}")
 
@@ -388,7 +401,10 @@ class GamingCenterClient(QMainWindow):
             win32gui.SetForegroundWindow(hwnd)
 
     def changeEvent(self, event):
-        # Remove anti-minimizing logic for main UI
+        if event.type() == QEvent.WindowStateChange:
+            if self.isMinimized():
+                self.tray_icon.show()
+                self.hide()
         super().changeEvent(event)
 
     def keyPressEvent(self, event):
@@ -403,6 +419,16 @@ class GamingCenterClient(QMainWindow):
     def prompt_admin_password(self):
         password, ok = QInputDialog.getText(self, "Admin Unlock", "Enter admin password:", QLineEdit.Password)
         return ok and password == "your_admin_password"
+
+    def show_normal_from_tray(self):
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+        self.tray_icon.hide()
+
+    def on_tray_icon_activated(self, reason):
+        if reason == QSystemTrayIcon.DoubleClick:
+            self.show_normal_from_tray()
 
 def main():
     app = QApplication(sys.argv)
