@@ -32,6 +32,7 @@ class StatusUpdater(QObject):
     status_changed = Signal(str)
     session_started = Signal(int, int)  # session_id, duration
     session_ended = Signal(bool)  # force_end
+    session_extended = Signal(int)  # minutes
 
 class ServerDiscoveryListener:
     def __init__(self, callback):
@@ -62,6 +63,7 @@ class GamingCenterClient(QMainWindow):
         self.status_updater.status_changed.connect(self.update_status_label)
         self.status_updater.session_started.connect(self.start_session)
         self.status_updater.session_ended.connect(self.end_session)
+        self.status_updater.session_extended.connect(self.on_session_extended)
         
         # Robust tray icon path
         icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icon.png')
@@ -133,9 +135,13 @@ class GamingCenterClient(QMainWindow):
         try:
             minutes = message.get('minutes', 0)
             if self.current_session:
-                self.current_session['end_time'] += timedelta(minutes=minutes)
+                end_time = self.current_session.get('end_time')
+                if not end_time or not isinstance(end_time, datetime):
+                    self.current_session['end_time'] = datetime.now() + timedelta(minutes=minutes)
+                else:
+                    self.current_session['end_time'] += timedelta(minutes=minutes)
                 logger.info(f"Session extended by {minutes} minutes.")
-                QMessageBox.information(self, "Session Extended", f"Your session has been extended by {minutes} minutes.")
+                self.status_updater.session_extended.emit(minutes)
         except Exception as e:
             logger.error(f"Error handling extend session: {e}")
 
@@ -439,6 +445,9 @@ class GamingCenterClient(QMainWindow):
     def minimize_to_tray(self):
         self.tray_icon.show()
         self.hide()
+
+    def on_session_extended(self, minutes):
+        QMessageBox.information(self, "Session Extended", f"Your session has been extended by {minutes} minutes.")
 
 def main():
     app = QApplication(sys.argv)
