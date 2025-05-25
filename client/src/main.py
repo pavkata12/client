@@ -53,7 +53,9 @@ class GamingCenterClient(QMainWindow):
         
         # Create lock screen
         self.lock_screen = LockScreen()
-        self.lock_screen.connect_requested.connect(self.connect_to_server)
+        self.lock_screen.connect_requested.connect(
+            lambda ip, port: self.connect_to_server(ip, port)
+        )
         
         # Connect signals
         self.status_updater.status_changed.connect(self.update_status_label)
@@ -270,11 +272,12 @@ class GamingCenterClient(QMainWindow):
                 self.discovery_browser.cancel()
         self.discovery_browser = ServiceBrowser(self.zeroconf, "_gamingcenter._tcp.local.", ServerDiscoveryListener(on_found))
 
-    def connect_to_server(self):
+    def connect_to_server(self, ip=None, port=None):
         """Connect to the server and save the IP/port to config.json if successful."""
         try:
-            server_ip = self.server_ip_input.text()
-            server_port = int(self.server_port_input.text())
+            # Use values from lock screen if provided, else from main UI
+            server_ip = ip or self.server_ip_input.text()
+            server_port = int(port or self.server_port_input.text())
             if self.network.connect(server_ip, server_port):
                 self.status_updater.status_changed.emit("Connected to server")
                 self.save_server_config(server_ip, server_port)
