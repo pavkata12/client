@@ -45,6 +45,7 @@ class ServerDiscoveryListener:
 class GamingCenterClient(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.setWindowFlags(Qt.Window)  # Ensure main window is minimizable
         self.network = NetworkManager()
         self.current_session = None
         self.status_updater = StatusUpdater()
