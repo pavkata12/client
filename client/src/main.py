@@ -63,7 +63,13 @@ class GamingCenterClient(QMainWindow):
         self.status_updater.session_started.connect(self.start_session)
         self.status_updater.session_ended.connect(self.end_session)
         
-        self.tray_icon = QSystemTrayIcon(QIcon("client/resources/image.png"), self)
+        # Robust tray icon path
+        icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icon.png')
+        if not os.path.exists(icon_path):
+            # Use a default Qt icon if missing
+            self.tray_icon = QSystemTrayIcon(self.style().standardIcon(QStyle.SP_ComputerIcon), self)
+        else:
+            self.tray_icon = QSystemTrayIcon(QIcon(icon_path), self)
         tray_menu = QMenu()
         restore_action = QAction("Restore", self)
         restore_action.triggered.connect(self.show_normal_from_tray)
