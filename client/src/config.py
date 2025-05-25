@@ -22,33 +22,6 @@ WINDOW_TITLE = "Gaming Center Client"
 WINDOW_MIN_WIDTH = 400
 WINDOW_MIN_HEIGHT = 300
 
-# System settings
-ALLOWED_PROCESSES = {
-    'explorer.exe',
-    'svchost.exe',
-    'csrss.exe',
-    'winlogon.exe',
-    'services.exe',
-    'lsass.exe',
-    'spoolsv.exe',
-    'python.exe',
-    'pythonw.exe'
-}
-
-ALLOWED_WINDOWS = {
-    'Gaming Center Client',
-    'Task Manager',
-    'Windows Security'
-}
-
-BLOCKED_PROCESSES = [
-    "taskmgr.exe",
-    "regedit.exe",
-    "cmd.exe",
-    "powershell.exe",
-    "explorer.exe"
-]
-
 # Logging settings
 LOG_DIR = DATA_DIR / "logs"
 os.makedirs(LOG_DIR, exist_ok=True)
