@@ -2,7 +2,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QLineEdit, QPushButton, QMessageBox
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QEvent
 from PySide6.QtGui import QFont
 
 class LockScreen(QWidget):
@@ -18,11 +18,12 @@ class LockScreen(QWidget):
         
     def setup_window_properties(self):
         """Configure window properties for lock screen."""
-        # Make window fullscreen and always on top
+        # Make window fullscreen and always on top, not minimizable
         self.setWindowFlags(
             Qt.Window |
             Qt.FramelessWindowHint |
-            Qt.WindowStaysOnTopHint
+            Qt.WindowStaysOnTopHint |
+            Qt.CustomizeWindowHint  # disables minimize/maximize/close buttons
         )
         # Set black background
         self.setStyleSheet("""
@@ -127,4 +128,11 @@ class LockScreen(QWidget):
     def showEvent(self, event):
         """Handle show event to ensure window is fullscreen."""
         super().showEvent(event)
-        self.showFullScreen() 
+        self.showFullScreen()
+
+    def changeEvent(self, event):
+        if event.type() == QEvent.WindowStateChange:
+            if self.windowState() & Qt.WindowMinimized:
+                self.showNormal()
+                self.activateWindow()
+        super().changeEvent(event) 

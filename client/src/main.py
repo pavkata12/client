@@ -372,7 +372,6 @@ class GamingCenterClient(QMainWindow):
                 self.lock_screen.show()
                 if force_end:
                     QMessageBox.information(self, "Session Ended", "Your session has been ended by the administrator.")
-                    QApplication.quit()
 
     def closeEvent(self, event):
         super().closeEvent(event)
