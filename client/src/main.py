@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QMessageBox, QGroupBox, QListWidget, QListWidgetItem, QInputDialog
 )
-from PySide6.QtCore import Qt, QTimer, Signal, Slot, QObject
+from PySide6.QtCore import Qt, QTimer, Signal, Slot, QObject, QEvent
 from PySide6.QtGui import QIcon, QFont
 import time
 import logging
@@ -17,7 +17,6 @@ import win32gui, win32con
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from network_manager import NetworkManager
-from system_locker import SystemLocker
 from config import (
     WINDOW_TITLE, WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT,
     DEFAULT_SERVER_IP, DEFAULT_SERVER_PORT,
@@ -186,18 +185,19 @@ class GamingCenterClient(QMainWindow):
     def apply_gothic_style(self):
         gothic_qss = """
         QMainWindow, QWidget {
-            background-image: url('../resources/image.png');
+            background-image: url('client/resources/image.png');
             background-repeat: no-repeat;
             background-position: center;
             background-attachment: fixed;
             background-color: #18141a;
+            color: #fff;
         }
-        QGroupBox, QTabWidget::pane, QTableWidget, QLineEdit, QSpinBox, QComboBox, QDoubleSpinBox {
-            background: transparent;
+        QLabel, QLineEdit, QTableWidget, QPushButton, QComboBox, QSpinBox, QDoubleSpinBox, QListWidget, QGroupBox {
+            color: #fff;
         }
         QTabBar::tab {
             background: #2d223a;
-            color: #e0d6eb;
+            color: #fff;
             border: 1px solid #3a2a4d;
             border-radius: 6px 6px 0 0;
             padding: 8px 20px;
@@ -209,7 +209,7 @@ class GamingCenterClient(QMainWindow):
         }
         QPushButton {
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #3a2a4d, stop:1 #18141a);
-            color: #e0d6eb;
+            color: #fff;
             border: 1px solid #6c4e7c;
             border-radius: 6px;
             padding: 6px 16px;
@@ -223,12 +223,12 @@ class GamingCenterClient(QMainWindow):
         QLabel#headingLabel {
             font-family: 'UnifrakturCook', 'Old English Text MT', 'Segoe UI', serif;
             font-size: 24px;
-            color: #a084ca;
+            color: #fff;
             font-weight: bold;
         }
         QHeaderView::section {
             background: #2d223a;
-            color: #a084ca;
+            color: #fff;
             border: 1px solid #3a2a4d;
             font-weight: bold;
         }
@@ -458,7 +458,7 @@ class GamingCenterClient(QMainWindow):
             win32gui.SetForegroundWindow(hwnd)
 
     def changeEvent(self, event):
-        if event.type() == Qt.WindowStateChange and self.kiosk_controller.is_kiosk_mode:
+        if event.type() == QEvent.WindowStateChange and self.kiosk_controller.is_kiosk_mode:
             if self.windowState() & Qt.WindowMinimized:
                 self.showNormal()
                 self.activateWindow()
