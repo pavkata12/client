@@ -159,7 +159,7 @@ class GamingCenterClient(QMainWindow):
     def handle_computer_removed(self, message):
         """Handle computer removed message from server."""
         QMessageBox.information(self, "Computer Removed", "This computer has been removed from the system. The application will now close.")
-        self.close()
+        QApplication.quit()
 
     def handle_connection_lost(self, message):
         """Handle connection lost message."""
@@ -358,13 +358,12 @@ class GamingCenterClient(QMainWindow):
                 self.status_label.setText("No active session")
                 self.time_label.setText("")
                 logger.info("Session ended")
-                
                 # Show lock screen and hide main window
                 self.hide()
                 self.lock_screen.show()
-                
                 if force_end:
                     QMessageBox.information(self, "Session Ended", "Your session has been ended by the administrator.")
+                    QApplication.quit()
 
     def closeEvent(self, event):
         super().closeEvent(event)
