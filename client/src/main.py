@@ -366,7 +366,7 @@ class GamingCenterClient(QMainWindow):
             self.raise_()
             self.activateWindow()
             # Minimize to tray after 1 second
-            QTimer.singleShot(1000, self.showMinimized)
+            QTimer.singleShot(1000, self.minimize_to_tray)
         except Exception as e:
             logger.error(f"Error starting session: {e}")
 
@@ -435,6 +435,10 @@ class GamingCenterClient(QMainWindow):
     def on_tray_icon_activated(self, reason):
         if reason == QSystemTrayIcon.DoubleClick:
             self.show_normal_from_tray()
+
+    def minimize_to_tray(self):
+        self.tray_icon.show()
+        self.hide()
 
 def main():
     app = QApplication(sys.argv)
