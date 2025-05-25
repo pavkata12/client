@@ -12,6 +12,7 @@ import time
 import logging
 from zeroconf import Zeroconf, ServiceBrowser
 import win32gui, win32con
+import subprocess
 
 # Add the src directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -369,13 +370,12 @@ class GamingCenterClient(QMainWindow):
                 self.status_label.setText("No active session")
                 self.time_label.setText("")
                 logger.info("Session ended")
-                # Show lock screen and hide main window
+                # Relaunch lock screen and close main UI
                 self.hide()
-                self.lock_screen.show()
-                self.lock_screen.raise_()
-                self.lock_screen.activateWindow()
-                self.lock_screen.setWindowState(Qt.WindowNoState)
-                self.lock_screen.showFullScreen()
+                lock_screen_py = os.path.join(os.path.dirname(__file__), 'lock_screen_main.py')
+                python_exe = sys.executable
+                subprocess.Popen([python_exe, lock_screen_py])
+                QApplication.quit()
                 if force_end:
                     QMessageBox.information(self, "Session Ended", "Your session has been ended by the administrator.")
 
