@@ -27,7 +27,7 @@ class LockScreen(QWidget):
         if self.server_ip and self.server_port:
             self.set_connection_ui_visible(False)
             self.status_label.setText("Connecting to server...")
-            self.connection_timer.start(3000)
+            self.connection_timer.start(5000)
         else:
             self.set_connection_ui_visible(True)
         
@@ -171,6 +171,7 @@ class LockScreen(QWidget):
         if not self.connected and self.server_ip and self.server_port:
             self.status_label.setText("Connecting to server...")
             self.connect_requested.emit(self.server_ip, self.server_port)
+            # If we're not connected after this attempt, the timer will trigger another attempt in 5 seconds
 
     def update_status(self, status):
         """Update the status label."""
@@ -182,7 +183,8 @@ class LockScreen(QWidget):
             self.connected = False
             if self.server_ip and self.server_port:
                 if not self.connection_timer.isActive():
-                    self.connection_timer.start(3000)
+                    self.connection_timer.start(5000)  # Try to reconnect every 5 seconds
+                    self.status_label.setText("Connection lost - attempting to reconnect...")
         
     def showEvent(self, event):
         """Handle show event to ensure window is fullscreen."""

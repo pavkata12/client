@@ -188,7 +188,11 @@ class GamingCenterClient(QMainWindow):
     def handle_connection_lost(self, message):
         """Handle connection lost message."""
         self.status_label.setText("Connection lost - attempting to reconnect...")
-        QTimer.singleShot(5000, self.reconnect_to_server)
+        # Get the last known server IP and port
+        server_ip = self.server_ip_input.text()
+        server_port = self.server_port_input.text()
+        # Schedule reconnection attempt
+        QTimer.singleShot(5000, lambda: self.connect_to_server(server_ip, server_port))
 
     def update_status_label(self, status):
         """Update the status label in the UI thread."""
@@ -306,10 +310,14 @@ class GamingCenterClient(QMainWindow):
                 self.status_updater.status_changed.emit("Connected to server")
                 self.save_server_config(server_ip, server_port)
             else:
-                self.status_updater.status_changed.emit("Failed to connect to server")
+                self.status_updater.status_changed.emit("Failed to connect - retrying in 5 seconds...")
+                # Schedule a reconnection attempt
+                QTimer.singleShot(5000, lambda: self.connect_to_server(server_ip, server_port))
         except Exception as e:
             logger.error(f"Error connecting to server: {e}")
-            self.status_updater.status_changed.emit("Error connecting to server")
+            self.status_updater.status_changed.emit("Connection error - retrying in 5 seconds...")
+            # Schedule a reconnection attempt
+            QTimer.singleShot(5000, lambda: self.connect_to_server(ip, port))
 
     def save_server_config(self, ip, port):
         config_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'client_config.json')
