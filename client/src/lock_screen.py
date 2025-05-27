@@ -7,6 +7,7 @@ from PySide6.QtGui import QFont
 import os
 import json
 import keyboard
+from network_manager import NetworkManager
 
 class LockScreen(QWidget):
     """A fullscreen black lock screen with connection UI."""
@@ -23,6 +24,7 @@ class LockScreen(QWidget):
         self.server_ip = None
         self.server_port = None
         self.connected = False
+        self.network = NetworkManager()
         self.load_server_config()
         if self.server_ip and self.server_port:
             self.set_connection_ui_visible(False)
@@ -165,14 +167,16 @@ class LockScreen(QWidget):
         try:
             ip = self.ip_input.text().strip()
             port = int(self.port_input.text().strip())
-            
             if not ip:
                 QMessageBox.warning(self, "Error", "Please enter a server IP address")
                 return
-                
             self.save_server_config(ip, port)
-            self.connect_requested.emit(ip, port)
-            
+            if self.network.connect(ip, port):
+                self.connected = True
+                self.connect_requested.emit(ip, port)
+            else:
+                self.connected = False
+                self.status_label.setText("Failed to connect. Retrying...")
         except ValueError:
             QMessageBox.warning(self, "Error", "Please enter a valid port number")
             
@@ -196,8 +200,12 @@ class LockScreen(QWidget):
         if not self.connected and self.server_ip and self.server_port:
             self.status_label.setText("Connecting to server...")
             self.start_reconnect_countdown(5)
-            self.connect_requested.emit(self.server_ip, self.server_port)
-            # If we're not connected after this attempt, the timer will trigger another attempt in 5 seconds
+            if self.network.connect(self.server_ip, self.server_port):
+                self.connected = True
+                self.connect_requested.emit(self.server_ip, self.server_port)
+            else:
+                self.connected = False
+                self.status_label.setText("Failed to connect. Retrying...")
 
     def update_status(self, status):
         """Update the status label."""
