@@ -139,7 +139,7 @@ class GamingCenterClient(QMainWindow):
                 if not end_time or not isinstance(end_time, datetime):
                     self.current_session['end_time'] = datetime.now() + timedelta(minutes=minutes)
                 else:
-                self.current_session['end_time'] += timedelta(minutes=minutes)
+                    self.current_session['end_time'] += timedelta(minutes=minutes)
                 logger.info(f"Session extended by {minutes} minutes.")
                 self.status_updater.session_extended.emit(minutes)
         except Exception as e:
