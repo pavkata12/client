@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt, Signal, QEvent, QTimer
 from PySide6.QtGui import QFont
 import os
 import json
+import keyboard
 
 class LockScreen(QWidget):
     """A fullscreen black lock screen with connection UI."""
@@ -187,6 +188,15 @@ class LockScreen(QWidget):
         """Handle show event to ensure window is fullscreen."""
         super().showEvent(event)
         self.showFullScreen()
+        # Block Windows keys when lock screen is shown
+        keyboard.block_key('left windows')
+        keyboard.block_key('right windows')
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        # Unblock Windows keys when lock screen is hidden
+        keyboard.unblock_key('left windows')
+        keyboard.unblock_key('right windows')
 
     def changeEvent(self, event):
         if event.type() == QEvent.WindowStateChange:
