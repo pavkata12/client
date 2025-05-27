@@ -59,9 +59,6 @@ class GamingCenterClient(QMainWindow):
         
         # Create lock screen
         self.lock_screen = LockScreen()
-        self.lock_screen.connect_requested.connect(
-            lambda ip, port: self.connect_to_server(ip, port)
-        )
         
         # Connect signals
         self.status_updater.status_changed.connect(self.update_status_label)
@@ -90,7 +87,6 @@ class GamingCenterClient(QMainWindow):
         
         self.setup_ui()
         self.setup_network_handlers()
-        self.load_server_config()
 
         # Add a QTimer to update the session timer every second
         self.status_timer = QTimer(self)
