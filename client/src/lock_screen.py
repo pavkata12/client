@@ -89,6 +89,15 @@ class LockScreen(QWidget):
         self.status_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.status_label)
         
+        # Countdown label for reconnect
+        self.countdown_label = QLabel("")
+        self.countdown_label.setAlignment(Qt.AlignCenter)
+        countdown_font = QFont()
+        countdown_font.setPointSize(18)
+        countdown_font.setBold(True)
+        self.countdown_label.setFont(countdown_font)
+        layout.addWidget(self.countdown_label)
+        
         # Server connection controls
         server_layout = QHBoxLayout()
         
@@ -167,9 +176,26 @@ class LockScreen(QWidget):
         except ValueError:
             QMessageBox.warning(self, "Error", "Please enter a valid port number")
             
+    def start_reconnect_countdown(self, seconds=5):
+        self._reconnect_seconds = seconds
+        self.countdown_label.setText(f"Reconnecting in {self._reconnect_seconds}...")
+        if not hasattr(self, '_countdown_timer'):
+            self._countdown_timer = QTimer(self)
+            self._countdown_timer.timeout.connect(self._update_reconnect_countdown)
+        self._countdown_timer.start(1000)
+
+    def _update_reconnect_countdown(self):
+        self._reconnect_seconds -= 1
+        if self._reconnect_seconds > 0:
+            self.countdown_label.setText(f"Reconnecting in {self._reconnect_seconds}...")
+        else:
+            self.countdown_label.setText("")
+            self._countdown_timer.stop()
+
     def try_reconnect(self):
         if not self.connected and self.server_ip and self.server_port:
             self.status_label.setText("Connecting to server...")
+            self.start_reconnect_countdown(5)
             self.connect_requested.emit(self.server_ip, self.server_port)
             # If we're not connected after this attempt, the timer will trigger another attempt in 5 seconds
 
@@ -179,12 +205,14 @@ class LockScreen(QWidget):
         if status == "Connected to server":
             self.connected = True
             self.connection_timer.stop()
+            self.countdown_label.setText("")
         else:
             self.connected = False
             if self.server_ip and self.server_port:
                 if not self.connection_timer.isActive():
                     self.connection_timer.start(5000)  # Try to reconnect every 5 seconds
                     self.status_label.setText("Connection lost - attempting to reconnect...")
+                    self.start_reconnect_countdown(5)
         
     def showEvent(self, event):
         """Handle show event to ensure window is fullscreen."""
@@ -205,4 +233,8 @@ class LockScreen(QWidget):
             if self.windowState() & Qt.WindowMinimized:
                 self.showNormal()
                 self.activateWindow()
-        super().changeEvent(event) 
+        super().changeEvent(event)
+
+    def show_pause_message(self, pause_time_str):
+        self.set_connection_ui_visible(False)
+        self.status_label.setText(f"Session paused at: {pause_time_str}") 

@@ -33,6 +33,8 @@ class StatusUpdater(QObject):
     session_started = Signal(int, int)  # session_id, duration
     session_ended = Signal(bool)  # force_end
     session_extended = Signal(int)  # minutes
+    session_paused = Signal()
+    session_resumed = Signal()
 
 class ServerDiscoveryListener:
     def __init__(self, callback):
@@ -47,6 +49,8 @@ class ServerDiscoveryListener:
 class GamingCenterClient(QMainWindow):
     def __init__(self):
         super().__init__()
+        # Remove close button, leave only minimize
+        self.setWindowFlags(Qt.Window | Qt.WindowMinimizeButtonHint | Qt.CustomizeWindowHint)
         self.network = NetworkManager()
         self.current_session = None
         self.status_updater = StatusUpdater()
@@ -64,6 +68,8 @@ class GamingCenterClient(QMainWindow):
         self.status_updater.session_started.connect(self.start_session)
         self.status_updater.session_ended.connect(self.end_session)
         self.status_updater.session_extended.connect(self.on_session_extended)
+        self.status_updater.session_paused.connect(self.on_session_paused)
+        self.status_updater.session_resumed.connect(self.on_session_resumed)
         
         # Robust tray icon path
         icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icon.png')
@@ -148,16 +154,12 @@ class GamingCenterClient(QMainWindow):
     def handle_pause_session(self, message):
         """Handle session pause from server."""
         if self.current_session:
-            self.session_paused = True
-            self.status_label.setText("Session Paused")
-            QMessageBox.information(self, "Session Paused", "Your session has been paused by the administrator.")
+            self.status_updater.session_paused.emit()
 
     def handle_resume_session(self, message):
         """Handle session resume from server."""
         if self.current_session:
-            self.session_paused = False
-            self.status_label.setText("Session Active")
-            QMessageBox.information(self, "Session Resumed", "Your session has been resumed by the administrator.")
+            self.status_updater.session_resumed.emit()
 
     def handle_lock_computer(self, message):
         """Handle remote lock command from server."""
@@ -255,97 +257,16 @@ class GamingCenterClient(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
-        # Add a gothic heading label at the top
-        heading = QLabel("Gaming Center Client")
-        heading.setObjectName("headingLabel")
-        heading.setAlignment(Qt.AlignCenter)
-        font = heading.font()
-        font.setPointSize(24)
-        font.setBold(True)
-        heading.setFont(font)
-        layout.insertWidget(0, heading)
-        # Server connection controls
-        server_layout = QHBoxLayout()
-        self.server_ip_input = QLineEdit()
-        self.server_ip_input.setPlaceholderText("Server IP Address")
-        self.server_port_input = QLineEdit()
-        self.server_port_input.setPlaceholderText("Server Port")
-        self.server_port_input.setText(str(DEFAULT_SERVER_PORT))
-        discover_btn = QPushButton("Discover Server")
-        discover_btn.clicked.connect(self.discover_server)
-        connect_btn = QPushButton("Connect")
-        connect_btn.clicked.connect(self.connect_to_server)
-        server_layout.addWidget(QLabel("Server IP:"))
-        server_layout.addWidget(self.server_ip_input)
-        server_layout.addWidget(QLabel("Port:"))
-        server_layout.addWidget(self.server_port_input)
-        server_layout.addWidget(discover_btn)
-        server_layout.addWidget(connect_btn)
-        layout.addLayout(server_layout)
-        # Status section
-        status_group = QGroupBox("Status")
-        status_layout = QVBoxLayout(status_group)
-        self.status_label = QLabel("Status: Disconnected")
-        self.time_label = QLabel("Time Remaining: --:--")
-        status_layout.addWidget(self.status_label)
-        status_layout.addWidget(self.time_label)
-        layout.addWidget(status_group)
-
-    def discover_server(self):
-        def on_found(ip, port):
-            self.server_ip_input.setText(ip)
-            self.server_port_input.setText(str(port))
-            QMessageBox.information(self, "Server Found", f"Discovered server at {ip}:{port}")
-            if self.discovery_browser:
-                self.discovery_browser.cancel()
-        self.discovery_browser = ServiceBrowser(self.zeroconf, "_gamingcenter._tcp.local.", ServerDiscoveryListener(on_found))
-
-    def connect_to_server(self, ip=None, port=None):
-        """Connect to the server and save the IP/port to config.json if successful."""
-        try:
-            # Use values from lock screen if provided, else from main UI
-            server_ip = ip or self.server_ip_input.text()
-            server_port = int(port or self.server_port_input.text())
-            if self.network.connect(server_ip, server_port):
-                self.status_updater.status_changed.emit("Connected to server")
-                self.save_server_config(server_ip, server_port)
-            else:
-                self.status_updater.status_changed.emit("Failed to connect - retrying in 5 seconds...")
-                # Schedule a reconnection attempt
-                QTimer.singleShot(5000, lambda: self.connect_to_server(server_ip, server_port))
-        except Exception as e:
-            logger.error(f"Error connecting to server: {e}")
-            self.status_updater.status_changed.emit("Connection error - retrying in 5 seconds...")
-            # Schedule a reconnection attempt
-            QTimer.singleShot(5000, lambda: self.connect_to_server(ip, port))
-
-    def save_server_config(self, ip, port):
-        config_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'client_config.json')
-        try:
-            with open(config_path, 'w') as f:
-                json.dump({'server_ip': ip, 'server_port': port}, f)
-            # Update both UIs
-            self.server_ip_input.setText(ip)
-            self.server_port_input.setText(str(port))
-            self.lock_screen.ip_input.setText(ip)
-            self.lock_screen.port_input.setText(str(port))
-        except Exception as e:
-            logger.error(f"Error saving server config: {e}")
-
-    def load_server_config(self):
-        config_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'client_config.json')
-        try:
-            if os.path.exists(config_path):
-                with open(config_path, 'r') as f:
-                    config = json.load(f)
-                    ip = config.get('server_ip', '')
-                    port = str(config.get('server_port', DEFAULT_SERVER_PORT))
-                    self.server_ip_input.setText(ip)
-                    self.server_port_input.setText(port)
-                    self.lock_screen.ip_input.setText(ip)
-                    self.lock_screen.port_input.setText(port)
-        except Exception as e:
-            logger.error(f"Error loading server config: {e}")
+        # Large gothic timer label
+        self.time_label = QLabel("--:--:--")
+        self.time_label.setAlignment(Qt.AlignCenter)
+        gothic_font = QFont("Old English Text MT")
+        gothic_font.setPointSize(96)
+        gothic_font.setBold(True)
+        self.time_label.setFont(gothic_font)
+        layout.addStretch(1)
+        layout.addWidget(self.time_label)
+        layout.addStretch(1)
 
     def update_status(self):
         """Update the status display."""
@@ -358,9 +279,11 @@ class GamingCenterClient(QMainWindow):
                 hours = int(remaining.total_seconds() // 3600)
                 minutes = int((remaining.total_seconds() % 3600) // 60)
                 seconds = int(remaining.total_seconds() % 60)
-                self.time_label.setText(f"Time remaining: {hours:02d}:{minutes:02d}:{seconds:02d}")
+                self.time_label.setText(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
             else:
                 self.end_session()
+        else:
+            self.time_label.setText("--:--:--")
 
     def start_session(self, session_id: int, duration: int):
         """Start a new session."""
@@ -370,7 +293,6 @@ class GamingCenterClient(QMainWindow):
                 'start_time': datetime.now(),
                 'end_time': datetime.now() + timedelta(hours=duration)
             }
-            self.status_label.setText(f"Session {session_id} active")
             self.time_label.setText(f"Duration: {duration} hours")
             logger.info(f"Session {session_id} started successfully")
             # Hide lock screen and show main window
@@ -399,8 +321,7 @@ class GamingCenterClient(QMainWindow):
                 logger.error(f"Error ending session: {e}")
             finally:
                 self.current_session = None
-                self.status_label.setText("No active session")
-                self.time_label.setText("")
+                self.time_label.setText("--:--:--")
                 logger.info("Session ended")
                 # Relaunch lock screen and close main UI
                 self.hide()
@@ -456,6 +377,24 @@ class GamingCenterClient(QMainWindow):
 
     def on_session_extended(self, minutes):
         QMessageBox.information(self, "Session Extended", f"Your session has been extended by {minutes} minutes.")
+
+    def on_session_paused(self):
+        self.session_paused = True
+        from datetime import datetime
+        pause_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        self.lock_screen.show_pause_message(pause_time)
+        self.lock_screen.showFullScreen()
+        self.lock_screen.activateWindow()
+        self.lock_screen.raise_()
+        self.hide()
+
+    def on_session_resumed(self):
+        self.session_paused = False
+        self.lock_screen.set_connection_ui_visible(False)
+        self.lock_screen.hide()
+        self.show()
+        self.raise_()
+        self.activateWindow()
 
 def main():
     app = QApplication(sys.argv)
