@@ -73,15 +73,14 @@ class TimerWindow(QMainWindow):
         self.update_file = update_file
         self.last_update_mtime = None
         
-        # Initialize timers first
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_timer)
-        
-        self.update_check_timer = QTimer(self)
-        self.update_check_timer.timeout.connect(self.check_for_update)
-        
-        # Set window properties
+        # Set window properties first
         self.setWindowTitle("Session Timer")
+        self.setWindowFlags(
+            Qt.Window |
+            Qt.FramelessWindowHint |
+            Qt.WindowStaysOnTopHint |
+            Qt.CustomizeWindowHint
+        )
         
         # Initialize kiosk controller
         self.kiosk_controller = KioskController()
@@ -90,9 +89,6 @@ class TimerWindow(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
-        
-        # Create toolbar
-        self.create_toolbar()
         
         # Timer display
         timer_layout = QVBoxLayout()
@@ -147,14 +143,6 @@ class TimerWindow(QMainWindow):
         icons_layout.addStretch(1)
         main_layout.addLayout(icons_layout)
         
-        # Set window flags for fullscreen operation
-        self.setWindowFlags(
-            Qt.Window |
-            Qt.FramelessWindowHint |
-            Qt.WindowStaysOnTopHint |
-            Qt.CustomizeWindowHint
-        )
-        
         # Set window style
         self.setStyleSheet("""
             QMainWindow {
@@ -177,9 +165,19 @@ class TimerWindow(QMainWindow):
             }
         """)
         
-        # Start timers after everything is initialized
+        # Create toolbar after window is fully initialized
+        self.create_toolbar()
+        
+        # Initialize timers
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_timer)
         self.timer.start(1000)
+        
+        self.update_check_timer = QTimer(self)
+        self.update_check_timer.timeout.connect(self.check_for_update)
         self.update_check_timer.start(2000)
+        
+        # Initial timer update
         self.update_timer()
 
     def create_toolbar(self):
