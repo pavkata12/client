@@ -152,12 +152,17 @@ class TimerWindow(QMainWindow):
 
     def load_allowed_apps(self):
         config_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'allowed_apps.json')
+        print(f"DEBUG: Loading allowed apps from: {config_path}")
         if os.path.exists(config_path):
             try:
                 with open(config_path, 'r') as f:
-                    return json.load(f)
+                    apps = json.load(f)
+                    print(f"DEBUG: Loaded allowed apps: {json.dumps(apps, indent=2)}")
+                    return apps
             except Exception as e:
                 print(f"Error loading allowed_apps.json: {e}")
+        else:
+            print(f"DEBUG: allowed_apps.json not found at: {config_path}")
         return []
 
     def get_app_icon(self, app):
@@ -185,12 +190,20 @@ class TimerWindow(QMainWindow):
     def launch_application(self, app):
         try:
             exe_path = app.get('path')
+            print(f"DEBUG: Attempting to launch app: {app.get('name')}")
+            print(f"DEBUG: Full path being checked: {exe_path}")
+            print(f"DEBUG: Path exists check result: {os.path.exists(exe_path)}")
+            
             if exe_path and os.path.exists(exe_path):
-                os.startfile(exe_path)
+                import subprocess
+                print(f"DEBUG: Launching with subprocess.Popen: {exe_path}")
+                subprocess.Popen([exe_path])
                 QMessageBox.information(self, "Application Launched", f"{app['name']} is starting...")
             else:
+                print(f"DEBUG: Path not found or doesn't exist: {exe_path}")
                 QMessageBox.warning(self, "Error", f"App path not found: {exe_path}")
         except Exception as e:
+            print(f"DEBUG: Error occurred: {str(e)}")
             QMessageBox.critical(self, "Error", f"Error launching {app['name']}: {str(e)}")
 
     def create_toolbar(self):
@@ -282,21 +295,23 @@ class TimerWindow(QMainWindow):
             widget = item.widget()
             if widget:
                 widget.deleteLater()
-        # Add allowed app icons in a grid, only if the exe exists
+        
+        # Add allowed app icons in a grid
         row, col = 0, 0
         max_cols = 5
         icon_size = 80
+        
+        print(f"DEBUG: Building desktop icons for {len(self.allowed_apps)} apps")
         for idx, app in enumerate(self.allowed_apps):
             exe_path = app.get('path')
-            print(f"DEBUG: Checking app {app.get('name')} at {exe_path}")
-            if not exe_path or not os.path.exists(exe_path):
-                print(f"DEBUG: Skipping {exe_path} (not found)")
-                continue  # Skip missing executables
+            print(f"DEBUG: Processing app {app.get('name')} at {exe_path}")
+            
+            # Create icon button regardless of path existence
             icon_btn = QPushButton()
             icon_btn.setIcon(self.get_app_icon(app))
             icon_btn.setIconSize(QSize(icon_size, icon_size))
             icon_btn.setFixedSize(icon_size + 16, icon_size + 32)
-            icon_btn.setToolTip(app['name'])
+            icon_btn.setToolTip(f"{app['name']}\nPath: {exe_path}")
             icon_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             icon_btn.setStyleSheet("""
                 QPushButton {
@@ -309,18 +324,22 @@ class TimerWindow(QMainWindow):
                 }
             """)
             icon_btn.clicked.connect(lambda checked, a=app: self.launch_application(a))
+            
             label = QLabel(app['name'])
             label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
             label.setStyleSheet("color: #ecf0f1; font-size: 14px;")
             label.setWordWrap(True)
+            
             vbox = QVBoxLayout()
             vbox.addWidget(icon_btn, alignment=Qt.AlignHCenter)
             vbox.addWidget(label, alignment=Qt.AlignHCenter)
             vbox.setSpacing(4)
             vbox.setContentsMargins(0, 0, 0, 0)
+            
             icon_widget = QWidget()
             icon_widget.setLayout(vbox)
             self.desktop_layout.addWidget(icon_widget, row, col)
+            
             col += 1
             if col >= max_cols:
                 col = 0
