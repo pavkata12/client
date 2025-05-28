@@ -2,18 +2,18 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QLineEdit, QPushButton, QMessageBox
 )
-from PySide6.QtCore import Qt, Signal, QEvent, QTimer
+from PySide6.QtCore import Qt, QEvent, QTimer
 from PySide6.QtGui import QFont
 import os
 import json
 import keyboard
 from network_manager import NetworkManager
+import sys
+import subprocess
+from datetime import datetime, timedelta
 
 class LockScreen(QWidget):
-    """A fullscreen black lock screen with connection UI."""
-    
-    # Signal emitted when connection is requested
-    connect_requested = Signal(str, int)  # ip, port
+    """A fullscreen black lock screen with connection UI and session logic."""
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -25,14 +25,91 @@ class LockScreen(QWidget):
         self.server_port = None
         self.connected = False
         self.network = NetworkManager()
+        self.session_active = False
+        self.timer_process = None
         self.load_server_config()
+        self.register_handlers()
         if self.server_ip and self.server_port:
             self.set_connection_ui_visible(False)
             self.status_label.setText("Connecting to server...")
-            self.connection_timer.start(5000)
+            self.try_connect_and_start_timer()
         else:
             self.set_connection_ui_visible(True)
         
+    def register_handlers(self):
+        self.network.register_handler("start_session", self.handle_start_session)
+        self.network.register_handler("end_session", self.handle_end_session)
+        self.network.register_handler("extend_session", self.handle_extend_session)
+        self.network.register_handler("pause_session", self.handle_pause_session)
+        self.network.register_handler("resume_session", self.handle_resume_session)
+        self.network.register_handler("lock_computer", self.handle_lock_computer)
+        self.network.register_handler("shutdown_computer", self.handle_shutdown_computer)
+        self.network.register_handler("maintenance_mode", self.handle_maintenance_mode)
+        self.network.register_handler("computer_removed", self.handle_computer_removed)
+        self.network.register_handler("connection_lost", self.handle_connection_lost)
+
+    def handle_start_session(self, message):
+        session_id = message['session_id']
+        duration = message['duration']
+        self.session_active = True
+        end_time = datetime.now() + timedelta(hours=duration)
+        self.launch_timer_ui(end_time)
+        self.status_label.setText(f"Session {session_id} started for {duration} hours")
+
+    def handle_end_session(self, message):
+        self.session_active = False
+        self.close_timer_ui()
+        self.status_label.setText("Session ended")
+
+    def handle_extend_session(self, message):
+        # For simplicity, just close and relaunch timer with new end time
+        minutes = message.get('minutes', 0)
+        if self.session_active and self.timer_process:
+            # Get the new end time
+            end_time = datetime.now() + timedelta(minutes=minutes)
+            self.close_timer_ui()
+            self.launch_timer_ui(end_time)
+            self.status_label.setText(f"Session extended by {minutes} minutes")
+
+    def handle_pause_session(self, message):
+        self.status_label.setText("Session paused")
+
+    def handle_resume_session(self, message):
+        self.status_label.setText("Session resumed")
+
+    def handle_lock_computer(self, message):
+        import ctypes
+        ctypes.windll.user32.LockWorkStation()
+        self.status_label.setText("Computer locked by admin")
+
+    def handle_shutdown_computer(self, message):
+        os.system("shutdown /s /t 1")
+
+    def handle_maintenance_mode(self, message):
+        QMessageBox.information(self, "Maintenance Mode", "This computer is now in maintenance mode. Please contact staff.")
+        self.setEnabled(False)
+
+    def handle_computer_removed(self, message):
+        QMessageBox.information(self, "Computer Removed", "This computer has been removed from the system. The application will now close.")
+        QApplication.quit()
+
+    def handle_connection_lost(self, message):
+        self.status_label.setText("Connection lost - attempting to reconnect...")
+        if self.session_active:
+            self.close_timer_ui()
+
+    def launch_timer_ui(self, end_time):
+        # Launch the timer UI (main.py) with the end time as an ISO string
+        main_py = os.path.join(os.path.dirname(__file__), 'main.py')
+        python_exe = sys.executable
+        end_time_str = end_time.isoformat()
+        self.timer_process = subprocess.Popen([python_exe, main_py, end_time_str])
+
+    def close_timer_ui(self):
+        if self.timer_process and self.timer_process.poll() is None:
+            self.timer_process.terminate()
+            self.timer_process = None
+
     def setup_window_properties(self):
         """Configure window properties for lock screen."""
         # Make window fullscreen and always on top, not minimizable
@@ -162,6 +239,16 @@ class LockScreen(QWidget):
         except Exception:
             pass
 
+    def try_connect_and_start_timer(self):
+        if self.network.connect(self.server_ip, self.server_port):
+            self.connected = True
+            self.status_label.setText("Connected to server")
+        else:
+            self.connected = False
+            self.connection_timer.start(5000)
+            self.status_label.setText("Failed to connect. Retrying...")
+            self.start_reconnect_countdown(5)
+
     def handle_connect(self):
         """Handle connect button click."""
         try:
@@ -171,12 +258,11 @@ class LockScreen(QWidget):
                 QMessageBox.warning(self, "Error", "Please enter a server IP address")
                 return
             self.save_server_config(ip, port)
-            if self.network.connect(ip, port):
-                self.connected = True
-                self.connect_requested.emit(ip, port)
-            else:
-                self.connected = False
-                self.status_label.setText("Failed to connect. Retrying...")
+            self.server_ip = ip
+            self.server_port = port
+            self.set_connection_ui_visible(False)
+            self.status_label.setText("Connecting to server...")
+            self.try_connect_and_start_timer()
         except ValueError:
             QMessageBox.warning(self, "Error", "Please enter a valid port number")
             
@@ -199,13 +285,14 @@ class LockScreen(QWidget):
     def try_reconnect(self):
         if not self.connected and self.server_ip and self.server_port:
             self.status_label.setText("Connecting to server...")
-            self.start_reconnect_countdown(5)
             if self.network.connect(self.server_ip, self.server_port):
                 self.connected = True
-                self.connect_requested.emit(self.server_ip, self.server_port)
+                self.connection_timer.stop()
+                self.status_label.setText("Connected to server")
             else:
                 self.connected = False
                 self.status_label.setText("Failed to connect. Retrying...")
+                self.start_reconnect_countdown(5)
 
     def update_status(self, status):
         """Update the status label."""
@@ -245,4 +332,15 @@ class LockScreen(QWidget):
 
     def show_pause_message(self, pause_time_str):
         self.set_connection_ui_visible(False)
-        self.status_label.setText(f"Session paused at: {pause_time_str}") 
+        self.status_label.setText(f"Session paused at: {pause_time_str}")
+
+def main():
+    from PySide6.QtWidgets import QApplication
+    import sys
+    app = QApplication(sys.argv)
+    lock_screen = LockScreen()
+    lock_screen.showFullScreen()
+    sys.exit(app.exec())
+
+if __name__ == "__main__":
+    main() 

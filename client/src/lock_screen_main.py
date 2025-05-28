@@ -3,6 +3,7 @@ import os
 import subprocess
 from PySide6.QtWidgets import QApplication
 from lock_screen import LockScreen
+from network_manager import NetworkManager
 
 def main():
     app = QApplication(sys.argv)
@@ -10,10 +11,12 @@ def main():
     lock_screen.showFullScreen()
 
     def on_connect(ip, port):
-        # Save IP/port to config (handled in lock_screen)
-        # Launch main UI and exit lock screen
+        # Pass the connected NetworkManager to the main UI
         main_py = os.path.join(os.path.dirname(__file__), 'main.py')
         python_exe = sys.executable
+        # Pass the network manager via a global or singleton (simple approach)
+        import builtins
+        builtins.shared_network_manager = lock_screen.network
         subprocess.Popen([python_exe, main_py])
         app.quit()
 
