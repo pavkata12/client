@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QToolBar, QMainWindow,
     QDialog, QFormLayout, QLineEdit, QMessageBox,
-    QStyle, QStyleFactory, QSizePolicy
+    QStyle, QStyleFactory, QSizePolicy, QSystemTrayIcon, QMenu, QAction
 )
 from PySide6.QtCore import Qt, QTimer, QSize, QPoint, QEvent
 from PySide6.QtGui import QFont, QIcon, QAction, QColor, QPixmap
@@ -150,6 +150,23 @@ class TimerWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
         self.build_desktop_icons()
+        
+        # System tray icon setup
+        tray_icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icon.png')
+        self.tray_icon = QSystemTrayIcon(self)
+        self.tray_icon.setIcon(QIcon(tray_icon_path))
+        self.tray_icon.setToolTip("Gaming Center Timer")
+        # Tray menu
+        tray_menu = QMenu()
+        restore_action = QAction("Restore", self)
+        restore_action.triggered.connect(self.showNormal)
+        exit_action = QAction("Exit", self)
+        exit_action.triggered.connect(QApplication.instance().quit)
+        tray_menu.addAction(restore_action)
+        tray_menu.addAction(exit_action)
+        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.activated.connect(self.on_tray_icon_activated)
+        self.tray_icon.show()
 
     def load_allowed_apps(self):
         config_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'allowed_apps.json')
@@ -294,10 +311,8 @@ class TimerWindow(QMainWindow):
     def changeEvent(self, event):
         """Prevent window from being minimized and ensure it stays on top."""
         if event.type() == QEvent.WindowStateChange:
-            if self.windowState() & Qt.WindowMinimized:
-                self.showFullScreen()
-            self.raise_()
-            self.activateWindow()
+            if self.isMinimized():
+                self.hide()
         super().changeEvent(event)
 
     def build_desktop_icons(self):
@@ -383,6 +398,21 @@ class TimerWindow(QMainWindow):
         self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
         self.show()
         super().focusInEvent(event)
+
+    def on_tray_icon_activated(self, reason):
+        if reason == QSystemTrayIcon.Trigger:  # Single click
+            self.showNormal()
+            self.activateWindow()
+
+    def closeEvent(self, event):
+        event.ignore()
+        self.hide()
+        self.tray_icon.showMessage(
+            "Gaming Center Timer",
+            "Timer is still running in the tray.",
+            QSystemTrayIcon.Information,
+            2000
+        )
 
 def main():
     try:
