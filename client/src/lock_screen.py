@@ -27,6 +27,7 @@ class LockScreen(QWidget):
         self.network = NetworkManager()
         self.session_active = False
         self.timer_process = None
+        self.timer_update_file = os.path.join(os.path.dirname(__file__), '..', 'data', 'timer_update.json')
         self.load_server_config()
         self.register_handlers()
         if self.server_ip and self.server_port:
@@ -62,13 +63,12 @@ class LockScreen(QWidget):
         self.status_label.setText("Session ended")
 
     def handle_extend_session(self, message):
-        # For simplicity, just close and relaunch timer with new end time
         minutes = message.get('minutes', 0)
-        if self.session_active and self.timer_process:
-            # Get the new end time
+        if self.session_active:
+            # Update the timer UI via a file
             end_time = datetime.now() + timedelta(minutes=minutes)
-            self.close_timer_ui()
-            self.launch_timer_ui(end_time)
+            with open(self.timer_update_file, 'w') as f:
+                json.dump({'end_time': end_time.isoformat()}, f)
             self.status_label.setText(f"Session extended by {minutes} minutes")
 
     def handle_pause_session(self, message):
@@ -99,16 +99,21 @@ class LockScreen(QWidget):
             self.close_timer_ui()
 
     def launch_timer_ui(self, end_time):
-        # Launch the timer UI (main.py) with the end time as an ISO string
+        self.hide()  # Hide lock screen
         main_py = os.path.join(os.path.dirname(__file__), 'main.py')
         python_exe = sys.executable
         end_time_str = end_time.isoformat()
+        # Write initial end_time to the update file
+        with open(self.timer_update_file, 'w') as f:
+            json.dump({'end_time': end_time_str}, f)
         self.timer_process = subprocess.Popen([python_exe, main_py, end_time_str])
 
     def close_timer_ui(self):
         if self.timer_process and self.timer_process.poll() is None:
             self.timer_process.terminate()
             self.timer_process = None
+        self.showFullScreen()  # Show lock screen again
+        self.activateWindow()
 
     def setup_window_properties(self):
         """Configure window properties for lock screen."""
