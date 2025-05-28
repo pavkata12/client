@@ -82,7 +82,6 @@ class TimerWindow(QMainWindow):
         
         # Set window properties
         self.setWindowTitle("Session Timer")
-        self.setMinimumSize(800, 600)
         
         # Initialize kiosk controller
         self.kiosk_controller = KioskController()
@@ -148,10 +147,11 @@ class TimerWindow(QMainWindow):
         icons_layout.addStretch(1)
         main_layout.addLayout(icons_layout)
         
-        # Set window flags for background operation
+        # Set window flags for fullscreen operation
         self.setWindowFlags(
             Qt.Window |
-            Qt.WindowStaysOnBottomHint |
+            Qt.FramelessWindowHint |
+            Qt.WindowStaysOnTopHint |
             Qt.CustomizeWindowHint
         )
         
@@ -177,20 +177,10 @@ class TimerWindow(QMainWindow):
             }
         """)
         
-        # Position window in bottom-right corner
-        self.position_window()
-        
         # Start timers after everything is initialized
         self.timer.start(1000)
         self.update_check_timer.start(2000)
         self.update_timer()
-
-    def position_window(self):
-        screen = QApplication.primaryScreen().geometry()
-        window_size = self.sizeHint()
-        x = screen.width() - window_size.width() - 20
-        y = screen.height() - window_size.height() - 20
-        self.move(x, y)
 
     def create_toolbar(self):
         toolbar = QToolBar()
@@ -198,12 +188,6 @@ class TimerWindow(QMainWindow):
         toolbar.setIconSize(QSize(32, 32))
         
         # Add toolbar actions with icons
-        minimize_action = QAction(self.style().standardIcon(QStyle.SP_TitleBarMinButton), "Minimize", self)
-        minimize_action.triggered.connect(self.showMinimized)
-        toolbar.addAction(minimize_action)
-        
-        toolbar.addSeparator()
-        
         settings_action = QAction(self.style().standardIcon(QStyle.SP_DialogOpenButton), "Settings", self)
         settings_action.triggered.connect(self.show_settings)
         toolbar.addAction(settings_action)
@@ -212,7 +196,6 @@ class TimerWindow(QMainWindow):
 
     def launch_application(self, app_name):
         if self.kiosk_controller.launch_allowed_app(app_name):
-            self.showMinimized()  # Minimize the timer window when launching an app
             # Show a brief notification
             QMessageBox.information(self, "Application Launched", f"{app_name} is starting...")
         else:
@@ -263,6 +246,18 @@ class TimerWindow(QMainWindow):
             except Exception:
                 pass
 
+    def showEvent(self, event):
+        """Handle show event to ensure window is fullscreen."""
+        super().showEvent(event)
+        self.showFullScreen()
+
+    def changeEvent(self, event):
+        """Prevent window from being minimized."""
+        if event.type() == event.WindowStateChange:
+            if self.windowState() & Qt.WindowMinimized:
+                self.showFullScreen()
+        super().changeEvent(event)
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: python main.py <end_time_iso>")
@@ -277,7 +272,7 @@ def main():
     app = QApplication(sys.argv)
     app.setStyle(QStyleFactory.create('Fusion'))  # Use Fusion style for better look
     window = TimerWindow(end_time, update_file)
-    window.show()
+    window.showFullScreen()
     sys.exit(app.exec())
 
 if __name__ == "__main__":
