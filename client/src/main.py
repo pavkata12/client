@@ -101,6 +101,7 @@ class TimerWindow(QMainWindow):
         self.desktop_layout = QGridLayout(self.desktop_widget)
         self.desktop_layout.setContentsMargins(40, 80, 40, 40)
         self.desktop_layout.setSpacing(32)
+        self.main_layout.addWidget(self.desktop_widget)
         
         # Add allowed app icons in a grid
         self.build_desktop_icons()
