@@ -166,24 +166,32 @@ class TimerWindow(QMainWindow):
         return []
 
     def get_app_icon(self, app):
+        print("DEBUG: Starting get_app_icon")
         # Try to use custom icon if provided, else use exe icon, else fallback
         if app.get('icon') and os.path.exists(app['icon']):
+            print("DEBUG: Using custom icon")
             return QIcon(app['icon'])
         exe_path = app.get('path')
+        print(f"DEBUG: Trying to get icon from exe: {exe_path}")
         if exe_path and os.path.exists(exe_path):
             try:
+                print("DEBUG: Importing win32 modules")
                 import win32api
                 import win32con
                 import win32ui
                 import win32gui
+                print("DEBUG: Extracting icon from exe")
                 large, small = win32gui.ExtractIconEx(exe_path, 0)
                 if large:
+                    print("DEBUG: Creating QIcon from extracted icon")
                     icon = QIcon()
                     icon.addPixmap(QPixmap.fromWinHICON(large[0]))
                     win32gui.DestroyIcon(large[0])
                     return icon
-            except Exception:
+            except Exception as e:
+                print(f"DEBUG: Error extracting icon: {e}")
                 pass
+        print("DEBUG: Using fallback icon")
         # Fallback icon
         return self.style().standardIcon(QStyle.SP_DesktopIcon)
 
@@ -289,6 +297,7 @@ class TimerWindow(QMainWindow):
         super().changeEvent(event)
 
     def build_desktop_icons(self):
+        print("DEBUG: Starting build_desktop_icons")
         # Remove all widgets from the desktop layout
         while self.desktop_layout.count():
             item = self.desktop_layout.takeAt(0)
@@ -303,12 +312,17 @@ class TimerWindow(QMainWindow):
         
         print(f"DEBUG: Building desktop icons for {len(self.allowed_apps)} apps")
         for idx, app in enumerate(self.allowed_apps):
+            print(f"DEBUG: Processing app {idx + 1}/{len(self.allowed_apps)}")
             exe_path = app.get('path')
-            print(f"DEBUG: Processing app {app.get('name')} at {exe_path}")
+            print(f"DEBUG: App name: {app.get('name')}")
+            print(f"DEBUG: App path: {exe_path}")
             
             # Create icon button regardless of path existence
+            print("DEBUG: Creating icon button")
             icon_btn = QPushButton()
+            print("DEBUG: Setting icon")
             icon_btn.setIcon(self.get_app_icon(app))
+            print("DEBUG: Setting icon size")
             icon_btn.setIconSize(QSize(icon_size, icon_size))
             icon_btn.setFixedSize(icon_size + 16, icon_size + 32)
             icon_btn.setToolTip(f"{app['name']}\nPath: {exe_path}")
@@ -323,27 +337,33 @@ class TimerWindow(QMainWindow):
                     border-radius: 10px;
                 }
             """)
+            print("DEBUG: Connecting click handler")
             icon_btn.clicked.connect(lambda checked, a=app: self.launch_application(a))
             
+            print("DEBUG: Creating label")
             label = QLabel(app['name'])
             label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
             label.setStyleSheet("color: #ecf0f1; font-size: 14px;")
             label.setWordWrap(True)
             
+            print("DEBUG: Creating layout")
             vbox = QVBoxLayout()
             vbox.addWidget(icon_btn, alignment=Qt.AlignHCenter)
             vbox.addWidget(label, alignment=Qt.AlignHCenter)
             vbox.setSpacing(4)
             vbox.setContentsMargins(0, 0, 0, 0)
             
+            print("DEBUG: Creating widget")
             icon_widget = QWidget()
             icon_widget.setLayout(vbox)
+            print(f"DEBUG: Adding widget to grid at row {row}, col {col}")
             self.desktop_layout.addWidget(icon_widget, row, col)
             
             col += 1
             if col >= max_cols:
                 col = 0
                 row += 1
+        print("DEBUG: Finished build_desktop_icons")
 
     def check_allowed_apps_update(self):
         if not os.path.exists(self.allowed_apps_path):
