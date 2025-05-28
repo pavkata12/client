@@ -89,6 +89,7 @@ class TimerWindow(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(20, 20, 20, 20)
         
         # Timer display
         timer_layout = QVBoxLayout()
@@ -179,6 +180,11 @@ class TimerWindow(QMainWindow):
         
         # Initial timer update
         self.update_timer()
+        
+        # Ensure window is shown and stays on top
+        self.raise_()
+        self.activateWindow()
+        self.showFullScreen()
 
     def create_toolbar(self):
         toolbar = QToolBar()
@@ -245,15 +251,19 @@ class TimerWindow(QMainWindow):
                 pass
 
     def showEvent(self, event):
-        """Handle show event to ensure window is fullscreen."""
+        """Handle show event to ensure window is fullscreen and stays on top."""
         super().showEvent(event)
         self.showFullScreen()
+        self.raise_()
+        self.activateWindow()
 
     def changeEvent(self, event):
-        """Prevent window from being minimized."""
+        """Prevent window from being minimized and ensure it stays on top."""
         if event.type() == event.WindowStateChange:
             if self.windowState() & Qt.WindowMinimized:
                 self.showFullScreen()
+            self.raise_()
+            self.activateWindow()
         super().changeEvent(event)
 
 def main():
@@ -271,6 +281,8 @@ def main():
     app.setStyle(QStyleFactory.create('Fusion'))  # Use Fusion style for better look
     window = TimerWindow(end_time, update_file)
     window.showFullScreen()
+    window.raise_()
+    window.activateWindow()
     sys.exit(app.exec())
 
 if __name__ == "__main__":
