@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QDialog, QFormLayout, QLineEdit, QMessageBox,
     QStyle, QStyleFactory
 )
-from PySide6.QtCore import Qt, QTimer, QSize, QPoint
+from PySide6.QtCore import Qt, QTimer, QSize, QPoint, QEvent
 from PySide6.QtGui import QFont, QIcon, QAction, QColor
 from kiosk_controller import KioskController
 
@@ -79,7 +79,8 @@ class TimerWindow(QMainWindow):
             Qt.Window |
             Qt.FramelessWindowHint |
             Qt.WindowStaysOnTopHint |
-            Qt.CustomizeWindowHint
+            Qt.CustomizeWindowHint |
+            Qt.WindowSystemMenuHint
         )
         
         # Initialize kiosk controller
@@ -172,19 +173,21 @@ class TimerWindow(QMainWindow):
         # Initialize timers
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_timer)
-        self.timer.start(1000)
         
         self.update_check_timer = QTimer(self)
         self.update_check_timer.timeout.connect(self.check_for_update)
+        
+        # Start timers after everything is initialized
+        self.timer.start(1000)
         self.update_check_timer.start(2000)
         
         # Initial timer update
         self.update_timer()
         
         # Ensure window is shown and stays on top
+        self.showFullScreen()
         self.raise_()
         self.activateWindow()
-        self.showFullScreen()
 
     def create_toolbar(self):
         toolbar = QToolBar()
@@ -199,56 +202,68 @@ class TimerWindow(QMainWindow):
         self.addToolBar(toolbar)
 
     def launch_application(self, app_name):
-        if self.kiosk_controller.launch_allowed_app(app_name):
-            # Show a brief notification
-            QMessageBox.information(self, "Application Launched", f"{app_name} is starting...")
-        else:
-            QMessageBox.warning(self, "Error", f"Failed to launch {app_name}")
+        try:
+            if self.kiosk_controller.launch_allowed_app(app_name):
+                # Show a brief notification
+                QMessageBox.information(self, "Application Launched", f"{app_name} is starting...")
+            else:
+                QMessageBox.warning(self, "Error", f"Failed to launch {app_name}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error launching {app_name}: {str(e)}")
 
     def show_settings(self):
-        dialog = SettingsDialog(self)
-        if dialog.exec() == QDialog.Accepted:
-            # Settings were saved, you might want to update the kiosk controller
-            QMessageBox.information(self, "Settings", "Settings saved successfully!")
+        try:
+            dialog = SettingsDialog(self)
+            if dialog.exec() == QDialog.Accepted:
+                # Settings were saved, you might want to update the kiosk controller
+                QMessageBox.information(self, "Settings", "Settings saved successfully!")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error in settings dialog: {str(e)}")
 
     def update_timer(self):
-        remaining = self.end_time - datetime.now()
-        if remaining.total_seconds() > 0:
-            total_seconds = int(remaining.total_seconds())
-            hours = total_seconds // 3600
-            minutes = (total_seconds % 3600) // 60
-            seconds = total_seconds % 60
-            self.time_label.setText(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
-            
-            # Change color based on remaining time
-            if total_seconds < 300:  # Less than 5 minutes
-                self.time_label.setStyleSheet("color: #e74c3c;")  # Red
-            elif total_seconds < 900:  # Less than 15 minutes
-                self.time_label.setStyleSheet("color: #f39c12;")  # Orange
+        try:
+            remaining = self.end_time - datetime.now()
+            if remaining.total_seconds() > 0:
+                total_seconds = int(remaining.total_seconds())
+                hours = total_seconds // 3600
+                minutes = (total_seconds % 3600) // 60
+                seconds = total_seconds % 60
+                self.time_label.setText(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
+                
+                # Change color based on remaining time
+                if total_seconds < 300:  # Less than 5 minutes
+                    self.time_label.setStyleSheet("color: #e74c3c;")  # Red
+                elif total_seconds < 900:  # Less than 15 minutes
+                    self.time_label.setStyleSheet("color: #f39c12;")  # Orange
+                else:
+                    self.time_label.setStyleSheet("color: #ecf0f1;")  # White
             else:
-                self.time_label.setStyleSheet("color: #ecf0f1;")  # White
-        else:
-            self.time_label.setText("00:00:00")
-            self.time_label.setStyleSheet("color: #e74c3c;")  # Red
-            self.timer.stop()
-            self.update_check_timer.stop()
-            QTimer.singleShot(2000, self.close)
+                self.time_label.setText("00:00:00")
+                self.time_label.setStyleSheet("color: #e74c3c;")  # Red
+                self.timer.stop()
+                self.update_check_timer.stop()
+                QTimer.singleShot(2000, self.close)
+        except Exception as e:
+            print(f"Error updating timer: {str(e)}")
 
     def check_for_update(self):
-        if not os.path.exists(self.update_file):
-            return
-        mtime = os.path.getmtime(self.update_file)
-        if self.last_update_mtime is None or mtime > self.last_update_mtime:
-            self.last_update_mtime = mtime
-            try:
-                with open(self.update_file, 'r') as f:
-                    data = json.load(f)
-                new_end_time = datetime.fromisoformat(data['end_time'])
-                if new_end_time > self.end_time:
-                    self.end_time = new_end_time
-                    QMessageBox.information(self, "Session Extended", "Your session has been extended!")
-            except Exception:
-                pass
+        try:
+            if not os.path.exists(self.update_file):
+                return
+            mtime = os.path.getmtime(self.update_file)
+            if self.last_update_mtime is None or mtime > self.last_update_mtime:
+                self.last_update_mtime = mtime
+                try:
+                    with open(self.update_file, 'r') as f:
+                        data = json.load(f)
+                    new_end_time = datetime.fromisoformat(data['end_time'])
+                    if new_end_time > self.end_time:
+                        self.end_time = new_end_time
+                        QMessageBox.information(self, "Session Extended", "Your session has been extended!")
+                except Exception as e:
+                    print(f"Error reading update file: {str(e)}")
+        except Exception as e:
+            print(f"Error checking for updates: {str(e)}")
 
     def showEvent(self, event):
         """Handle show event to ensure window is fullscreen and stays on top."""
@@ -259,7 +274,7 @@ class TimerWindow(QMainWindow):
 
     def changeEvent(self, event):
         """Prevent window from being minimized and ensure it stays on top."""
-        if event.type() == event.WindowStateChange:
+        if event.type() == QEvent.WindowStateChange:
             if self.windowState() & Qt.WindowMinimized:
                 self.showFullScreen()
             self.raise_()
@@ -267,23 +282,27 @@ class TimerWindow(QMainWindow):
         super().changeEvent(event)
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python main.py <end_time_iso>")
-        sys.exit(1)
-    end_time_str = sys.argv[1]
-    update_file = os.path.join(os.path.dirname(__file__), '..', 'data', 'timer_update.json')
     try:
-        end_time = datetime.fromisoformat(end_time_str)
-    except Exception:
-        print("Invalid end_time format. Use ISO format, e.g. 2024-06-01T15:30:00")
+        if len(sys.argv) < 2:
+            print("Usage: python main.py <end_time_iso>")
+            sys.exit(1)
+        end_time_str = sys.argv[1]
+        update_file = os.path.join(os.path.dirname(__file__), '..', 'data', 'timer_update.json')
+        try:
+            end_time = datetime.fromisoformat(end_time_str)
+        except Exception:
+            print("Invalid end_time format. Use ISO format, e.g. 2024-06-01T15:30:00")
+            sys.exit(1)
+        app = QApplication(sys.argv)
+        app.setStyle(QStyleFactory.create('Fusion'))  # Use Fusion style for better look
+        window = TimerWindow(end_time, update_file)
+        window.showFullScreen()
+        window.raise_()
+        window.activateWindow()
+        sys.exit(app.exec())
+    except Exception as e:
+        print(f"Error in main: {str(e)}")
         sys.exit(1)
-    app = QApplication(sys.argv)
-    app.setStyle(QStyleFactory.create('Fusion'))  # Use Fusion style for better look
-    window = TimerWindow(end_time, update_file)
-    window.showFullScreen()
-    window.raise_()
-    window.activateWindow()
-    sys.exit(app.exec())
 
 if __name__ == "__main__":
     main() 
