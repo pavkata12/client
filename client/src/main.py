@@ -288,7 +288,9 @@ class TimerWindow(QMainWindow):
         icon_size = 80
         for idx, app in enumerate(self.allowed_apps):
             exe_path = app.get('path')
+            print(f"DEBUG: Checking app {app.get('name')} at {exe_path}")
             if not exe_path or not os.path.exists(exe_path):
+                print(f"DEBUG: Skipping {exe_path} (not found)")
                 continue  # Skip missing executables
             icon_btn = QPushButton()
             icon_btn.setIcon(self.get_app_icon(app))
