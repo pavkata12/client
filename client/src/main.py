@@ -206,6 +206,9 @@ class TimerWindow(QMainWindow):
             if exe_path and os.path.exists(exe_path):
                 import subprocess
                 print(f"DEBUG: Launching with subprocess.Popen: {exe_path}")
+                # Remove always-on-top flag
+                self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
+                self.show()
                 subprocess.Popen([exe_path])
                 QMessageBox.information(self, "Application Launched", f"{app['name']} is starting...")
             else:
@@ -375,6 +378,11 @@ class TimerWindow(QMainWindow):
             self.allowed_apps = self.load_allowed_apps()
             self.build_desktop_icons()
             QMessageBox.information(self, "App List Updated", "The allowed applications list has been updated.")
+
+    def focusInEvent(self, event):
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+        self.show()
+        super().focusInEvent(event)
 
 def main():
     try:
