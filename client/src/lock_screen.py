@@ -56,6 +56,7 @@ class LockScreen(QWidget):
         self.network.register_handler("maintenance_mode", self.handle_maintenance_mode)
         self.network.register_handler("computer_removed", self.handle_computer_removed)
         self.network.register_handler("connection_lost", self.handle_connection_lost)
+        self.network.register_handler("allowed_apps_update", self.handle_allowed_apps_update)
 
     def handle_start_session(self, message):
         session_id = message['session_id']
@@ -129,6 +130,17 @@ class LockScreen(QWidget):
         self.status_label.setText("Connection lost - attempting to reconnect...")
         if self.session_active:
             self.close_timer_ui()
+
+    def handle_allowed_apps_update(self, message):
+        allowed_apps = message.get('allowed_apps')
+        if allowed_apps is not None:
+            config_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'allowed_apps.json')
+            try:
+                with open(config_path, 'w') as f:
+                    json.dump(allowed_apps, f, indent=2)
+                print("Allowed apps updated from server.")
+            except Exception as e:
+                print(f"Error saving allowed apps from server: {e}")
 
     def launch_timer_ui(self, end_time):
         self.hide()  # Hide lock screen
