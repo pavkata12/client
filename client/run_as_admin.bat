@@ -1,6 +1,6 @@
 @echo off
 set "WORKDIR=C:\Users\pavka\OneDrive\Desktop\client-main\client\src"
-set "PYFILE=lock_screen_main.py"
+set "PYFILE=lock_screen.py"
 
 REM Check if the working directory exists
 if not exist "%WORKDIR%" (

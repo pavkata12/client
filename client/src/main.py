@@ -3,13 +3,13 @@ import os
 import json
 from datetime import datetime, timedelta
 from PySide6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QToolBar, QMainWindow,
     QDialog, QFormLayout, QLineEdit, QMessageBox,
-    QStyle, QStyleFactory
+    QStyle, QStyleFactory, QSizePolicy
 )
 from PySide6.QtCore import Qt, QTimer, QSize, QPoint, QEvent
-from PySide6.QtGui import QFont, QIcon, QAction, QColor
+from PySide6.QtGui import QFont, QIcon, QAction, QColor, QPixmap
 from kiosk_controller import KioskController
 
 class SettingsDialog(QDialog):
@@ -72,9 +72,12 @@ class TimerWindow(QMainWindow):
         self.end_time = end_time
         self.update_file = update_file
         self.last_update_mtime = None
+        self.allowed_apps = self.load_allowed_apps()
+        self.allowed_apps_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'allowed_apps.json')
+        self.allowed_apps_mtime = os.path.getmtime(self.allowed_apps_path) if os.path.exists(self.allowed_apps_path) else None
         
         # Set window properties first
-        self.setWindowTitle("Session Timer")
+        self.setWindowTitle("Session Desktop")
         self.setWindowFlags(
             Qt.Window |
             Qt.FramelessWindowHint |
@@ -89,81 +92,41 @@ class TimerWindow(QMainWindow):
         # Create central widget and main layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(20, 20, 20, 20)
+        self.main_layout = QVBoxLayout(central_widget)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
         
-        # Timer display
-        timer_layout = QVBoxLayout()
-        timer_layout.addStretch(1)
+        # Desktop area (for icons)
+        self.desktop_widget = QWidget()
+        self.desktop_layout = QGridLayout(self.desktop_widget)
+        self.desktop_layout.setContentsMargins(40, 80, 40, 40)
+        self.desktop_layout.setSpacing(32)
+        
+        # Add allowed app icons in a grid
+        self.build_desktop_icons()
+        
+        # Timer widget (top-right corner)
+        timer_widget = QWidget()
+        timer_layout = QVBoxLayout(timer_widget)
+        timer_layout.setContentsMargins(0, 0, 24, 0)
+        timer_layout.setAlignment(Qt.AlignTop | Qt.AlignRight)
         self.time_label = QLabel("--:--:--")
-        self.time_label.setAlignment(Qt.AlignCenter)
-        gothic_font = QFont("Old English Text MT")
-        gothic_font.setPointSize(96)
+        self.time_label.setAlignment(Qt.AlignRight | Qt.AlignTop)
+        gothic_font = QFont("Arial Black")
+        gothic_font.setPointSize(48)
         gothic_font.setBold(True)
         self.time_label.setFont(gothic_font)
+        self.time_label.setStyleSheet("color: #ecf0f1;")
         timer_layout.addWidget(self.time_label)
-        timer_layout.addStretch(1)
-        main_layout.addLayout(timer_layout)
+        self.main_layout.addWidget(timer_widget, alignment=Qt.AlignTop | Qt.AlignRight)
         
-        # Game and browser icons
-        icons_layout = QHBoxLayout()
-        icons_layout.addStretch(1)
-        
-        # Add game icons
-        game_icons = [
-            ("Steam", "steam.png"),
-            ("Discord", "discord.png"),
-            ("Chrome", "chrome.png"),
-            ("Firefox", "firefox.png")
-        ]
-        
-        for name, icon_file in game_icons:
-            icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons', icon_file)
-            if os.path.exists(icon_path):
-                icon_btn = QPushButton()
-                icon_btn.setIcon(QIcon(icon_path))
-                icon_btn.setIconSize(QSize(64, 64))
-                icon_btn.setFixedSize(80, 80)
-                icon_btn.setToolTip(name)
-                icon_btn.setStyleSheet("""
-                    QPushButton {
-                        border: 2px solid #3498db;
-                        border-radius: 10px;
-                        background-color: #2980b9;
-                        padding: 5px;
-                    }
-                    QPushButton:hover {
-                        background-color: #3498db;
-                    }
-                    QPushButton:pressed {
-                        background-color: #2472a4;
-                    }
-                """)
-                icon_btn.clicked.connect(lambda checked, n=name: self.launch_application(n))
-                icons_layout.addWidget(icon_btn)
-        
-        icons_layout.addStretch(1)
-        main_layout.addLayout(icons_layout)
-        
-        # Set window style
+        # Set window style (desktop look)
         self.setStyleSheet("""
-            QMainWindow {
+            QMainWindow, QWidget {
                 background-color: #2c3e50;
             }
             QLabel {
                 color: #ecf0f1;
-            }
-            QToolBar {
-                background-color: #34495e;
-                border: none;
-            }
-            QToolButton {
-                color: #ecf0f1;
-                padding: 5px;
-                border: none;
-            }
-            QToolButton:hover {
-                background-color: #2c3e50;
             }
         """)
         
@@ -173,21 +136,62 @@ class TimerWindow(QMainWindow):
         # Initialize timers
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_timer)
-        
         self.update_check_timer = QTimer(self)
         self.update_check_timer.timeout.connect(self.check_for_update)
-        
-        # Start timers after everything is initialized
         self.timer.start(1000)
         self.update_check_timer.start(2000)
-        
-        # Initial timer update
         self.update_timer()
-        
-        # Ensure window is shown and stays on top
+        # Poll for allowed_apps.json changes
+        self.apps_poll_timer = QTimer(self)
+        self.apps_poll_timer.timeout.connect(self.check_allowed_apps_update)
+        self.apps_poll_timer.start(5000)
         self.showFullScreen()
         self.raise_()
         self.activateWindow()
+        self.build_desktop_icons()
+
+    def load_allowed_apps(self):
+        config_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'allowed_apps.json')
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"Error loading allowed_apps.json: {e}")
+        return []
+
+    def get_app_icon(self, app):
+        # Try to use custom icon if provided, else use exe icon, else fallback
+        if app.get('icon') and os.path.exists(app['icon']):
+            return QIcon(app['icon'])
+        exe_path = app.get('path')
+        if exe_path and os.path.exists(exe_path):
+            try:
+                import win32api
+                import win32con
+                import win32ui
+                import win32gui
+                large, small = win32gui.ExtractIconEx(exe_path, 0)
+                if large:
+                    icon = QIcon()
+                    icon.addPixmap(QPixmap.fromWinHICON(large[0]))
+                    win32gui.DestroyIcon(large[0])
+                    return icon
+            except Exception:
+                pass
+        # Fallback icon
+        return self.style().standardIcon(QStyle.SP_DesktopIcon)
+
+    def launch_application(self, app):
+        try:
+            exe_path = app.get('path')
+            if exe_path and os.path.exists(exe_path):
+                os.startfile(exe_path)
+                QMessageBox.information(self, "Application Launched", f"{app['name']} is starting...")
+            else:
+                QMessageBox.warning(self, "Error", f"App path not found: {exe_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error launching {app['name']}: {str(e)}")
 
     def create_toolbar(self):
         toolbar = QToolBar()
@@ -200,16 +204,6 @@ class TimerWindow(QMainWindow):
         toolbar.addAction(settings_action)
         
         self.addToolBar(toolbar)
-
-    def launch_application(self, app_name):
-        try:
-            if self.kiosk_controller.launch_allowed_app(app_name):
-                # Show a brief notification
-                QMessageBox.information(self, "Application Launched", f"{app_name} is starting...")
-            else:
-                QMessageBox.warning(self, "Error", f"Failed to launch {app_name}")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Error launching {app_name}: {str(e)}")
 
     def show_settings(self):
         try:
@@ -280,6 +274,65 @@ class TimerWindow(QMainWindow):
             self.raise_()
             self.activateWindow()
         super().changeEvent(event)
+
+    def build_desktop_icons(self):
+        # Remove all widgets from the desktop layout
+        while self.desktop_layout.count():
+            item = self.desktop_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+        # Add allowed app icons in a grid, only if the exe exists
+        row, col = 0, 0
+        max_cols = 5
+        icon_size = 80
+        for idx, app in enumerate(self.allowed_apps):
+            exe_path = app.get('path')
+            if not exe_path or not os.path.exists(exe_path):
+                continue  # Skip missing executables
+            icon_btn = QPushButton()
+            icon_btn.setIcon(self.get_app_icon(app))
+            icon_btn.setIconSize(QSize(icon_size, icon_size))
+            icon_btn.setFixedSize(icon_size + 16, icon_size + 32)
+            icon_btn.setToolTip(app['name'])
+            icon_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            icon_btn.setStyleSheet("""
+                QPushButton {
+                    border: none;
+                    background: transparent;
+                }
+                QPushButton:hover {
+                    background: #34495e;
+                    border-radius: 10px;
+                }
+            """)
+            icon_btn.clicked.connect(lambda checked, a=app: self.launch_application(a))
+            label = QLabel(app['name'])
+            label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+            label.setStyleSheet("color: #ecf0f1; font-size: 14px;")
+            label.setWordWrap(True)
+            vbox = QVBoxLayout()
+            vbox.addWidget(icon_btn, alignment=Qt.AlignHCenter)
+            vbox.addWidget(label, alignment=Qt.AlignHCenter)
+            vbox.setSpacing(4)
+            vbox.setContentsMargins(0, 0, 0, 0)
+            icon_widget = QWidget()
+            icon_widget.setLayout(vbox)
+            self.desktop_layout.addWidget(icon_widget, row, col)
+            col += 1
+            if col >= max_cols:
+                col = 0
+                row += 1
+
+    def check_allowed_apps_update(self):
+        if not os.path.exists(self.allowed_apps_path):
+            return
+        mtime = os.path.getmtime(self.allowed_apps_path)
+        if self.allowed_apps_mtime is None or mtime > self.allowed_apps_mtime:
+            self.allowed_apps_mtime = mtime
+            self.allowed_apps = self.load_allowed_apps()
+            self.build_desktop_icons()
+            QMessageBox.information(self, "App List Updated", "The allowed applications list has been updated.")
 
 def main():
     try:
