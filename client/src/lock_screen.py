@@ -132,6 +132,7 @@ class LockScreen(QWidget):
             self.close_timer_ui()
 
     def handle_allowed_apps_update(self, message):
+        print("DEBUG: Received allowed_apps_update", message)
         allowed_apps = message.get('allowed_apps')
         if allowed_apps is not None:
             config_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'allowed_apps.json')
@@ -139,6 +140,16 @@ class LockScreen(QWidget):
                 with open(config_path, 'w') as f:
                     json.dump(allowed_apps, f, indent=2)
                 print("Allowed apps updated from server.")
+                # Try to force TimerWindow to reload if running (best effort)
+                # This will only work if TimerWindow is in the same process
+                try:
+                    import psutil
+                    for proc in psutil.process_iter(['name', 'cmdline']):
+                        if 'main.py' in ' '.join(proc.info.get('cmdline', [])):
+                            # Optionally, send a signal or message here if you implement IPC
+                            print("DEBUG: TimerWindow process detected (cannot reload in separate process without IPC)")
+                except Exception as e:
+                    print(f"DEBUG: Could not check for TimerWindow process: {e}")
             except Exception as e:
                 print(f"Error saving allowed apps from server: {e}")
 
