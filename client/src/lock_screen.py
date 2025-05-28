@@ -28,8 +28,16 @@ class LockScreen(QWidget):
         self.session_active = False
         self.timer_process = None
         self.timer_update_file = os.path.join(os.path.dirname(__file__), '..', 'data', 'timer_update.json')
+        self.pause_time = None
+        self.remaining_time_at_pause = None
+        self.session_end_time = None
+        self.paused = False
         self.load_server_config()
         self.register_handlers()
+        # Add timer to check if timer UI has exited
+        self.timer_check = QTimer(self)
+        self.timer_check.timeout.connect(self.check_timer_process)
+        self.timer_check.start(2000)
         if self.server_ip and self.server_port:
             self.set_connection_ui_visible(False)
             self.status_label.setText("Connecting to server...")
@@ -53,29 +61,53 @@ class LockScreen(QWidget):
         session_id = message['session_id']
         duration = message['duration']
         self.session_active = True
-        end_time = datetime.now() + timedelta(hours=duration)
-        self.launch_timer_ui(end_time)
+        self.paused = False
+        self.pause_time = None
+        self.remaining_time_at_pause = None
+        self.session_end_time = datetime.now() + timedelta(hours=duration)
+        self.launch_timer_ui(self.session_end_time)
         self.status_label.setText(f"Session {session_id} started for {duration} hours")
 
     def handle_end_session(self, message):
         self.session_active = False
+        self.paused = False
+        self.pause_time = None
+        self.remaining_time_at_pause = None
+        self.session_end_time = None
         self.close_timer_ui()
         self.status_label.setText("Session ended")
 
     def handle_extend_session(self, message):
         minutes = message.get('minutes', 0)
         if self.session_active:
-            # Update the timer UI via a file
-            end_time = datetime.now() + timedelta(minutes=minutes)
-            with open(self.timer_update_file, 'w') as f:
-                json.dump({'end_time': end_time.isoformat()}, f)
+            if self.paused and self.remaining_time_at_pause:
+                self.remaining_time_at_pause += timedelta(minutes=minutes)
+            elif self.session_end_time:
+                self.session_end_time += timedelta(minutes=minutes)
+                # Update the timer UI via a file if running
+                if self.timer_process and self.timer_process.poll() is None:
+                    with open(self.timer_update_file, 'w') as f:
+                        json.dump({'end_time': self.session_end_time.isoformat()}, f)
             self.status_label.setText(f"Session extended by {minutes} minutes")
 
     def handle_pause_session(self, message):
-        self.status_label.setText("Session paused")
+        if self.session_active and not self.paused:
+            self.paused = True
+            self.pause_time = datetime.now()
+            if self.session_end_time:
+                self.remaining_time_at_pause = self.session_end_time - self.pause_time
+            self.close_timer_ui()
+            self.status_label.setText(f"Session paused at: {self.pause_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
     def handle_resume_session(self, message):
-        self.status_label.setText("Session resumed")
+        if self.session_active and self.paused and self.remaining_time_at_pause:
+            self.paused = False
+            new_end_time = datetime.now() + self.remaining_time_at_pause
+            self.session_end_time = new_end_time
+            self.launch_timer_ui(self.session_end_time)
+            self.status_label.setText("Session resumed")
+            self.pause_time = None
+            self.remaining_time_at_pause = None
 
     def handle_lock_computer(self, message):
         import ctypes
@@ -338,6 +370,12 @@ class LockScreen(QWidget):
     def show_pause_message(self, pause_time_str):
         self.set_connection_ui_visible(False)
         self.status_label.setText(f"Session paused at: {pause_time_str}")
+
+    def check_timer_process(self):
+        if self.timer_process and self.timer_process.poll() is not None:
+            self.timer_process = None
+            self.showFullScreen()
+            self.activateWindow()
 
 def main():
     from PySide6.QtWidgets import QApplication

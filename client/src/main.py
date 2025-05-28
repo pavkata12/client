@@ -35,12 +35,12 @@ class TimerWindow(QWidget):
 
     def update_timer(self):
         remaining = self.end_time - datetime.now()
-        if remaining.total_seconds() > 0:
-            hours = int(remaining.total_seconds() // 3600)
-            minutes = int((remaining.total_seconds() % 3600) // 60)
-            seconds = int(remaining.total_seconds() % 60)
+            if remaining.total_seconds() > 0:
+                hours = int(remaining.total_seconds() // 3600)
+                minutes = int((remaining.total_seconds() % 3600) // 60)
+                seconds = int(remaining.total_seconds() % 60)
             self.time_label.setText(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
-        else:
+            else:
             self.time_label.setText("00:00:00")
             self.timer.stop()
             self.update_check_timer.stop()
