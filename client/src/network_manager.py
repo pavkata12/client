@@ -224,29 +224,58 @@ class NetworkManager(QObject):
         self._handle_connection_lost()
         
     def _handle_connection_lost(self) -> None:
-        """Handle connection loss and attempt reconnection."""
+        """Handle connection loss with exponential backoff."""
         try:
-            if not self.running:
+            if not self.state.connected:
                 return
                 
             self.state.connected = False
             self.state.reconnect_attempts += 1
             
-            if self.state.reconnect_attempts <= self.state.max_reconnect_attempts:
-                logger.info(f"Connection lost, attempting to reconnect ({self.state.reconnect_attempts}/{self.state.max_reconnect_attempts})")
-                time.sleep(self.state.reconnect_delay)
+            if self.state.reconnect_attempts > self.state.max_reconnect_attempts:
+                logger.error("Max reconnection attempts reached")
+                self._cleanup_connection()
+                self.error_occurred.emit("Connection lost and max reconnection attempts reached")
+                return
                 
-                if self.state.server_ip and self.state.server_port:
-                    if self.connect_to_server(self.state.server_ip, self.state.server_port):
-                        return
-                        
-            self._cleanup_connection()
-            self.error_occurred.emit("Connection lost")
-            self.connection_status_changed.emit(False)
+            # Calculate delay with exponential backoff
+            delay = min(
+                self.state.reconnect_delay * (2 ** (self.state.reconnect_attempts - 1)),
+                60.0  # Max delay of 60 seconds
+            )
+            
+            logger.info(f"Connection lost. Attempting to reconnect in {delay:.1f} seconds...")
+            self.error_occurred.emit(f"Connection lost. Reconnecting in {delay:.1f} seconds...")
+            
+            # Start reconnection thread
+            threading.Thread(
+                target=self._reconnect,
+                args=(delay,),
+                daemon=True
+            ).start()
             
         except Exception as e:
             logger.error(f"Error handling connection loss: {e}")
             self._cleanup_connection()
+            
+    def _reconnect(self, delay: float) -> None:
+        """Attempt to reconnect with delay."""
+        try:
+            time.sleep(delay)
+            
+            if not self.state.server_ip or not self.state.server_port:
+                logger.error("No server information available for reconnection")
+                return
+                
+            logger.info(f"Attempting to reconnect to {self.state.server_ip}:{self.state.server_port}")
+            if self.connect_to_server(self.state.server_ip, self.state.server_port):
+                logger.info("Reconnection successful")
+                self.state.reconnect_attempts = 0
+            else:
+                logger.error("Reconnection failed")
+                
+        except Exception as e:
+            logger.error(f"Error during reconnection: {e}")
             
     def _cleanup_connection(self) -> None:
         """Clean up connection resources."""

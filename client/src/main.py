@@ -17,6 +17,7 @@ import subprocess
 from pathlib import Path
 from typing import Dict, Optional, List
 from dataclasses import dataclass
+import ctypes
 
 # Configure logging
 logging.basicConfig(
@@ -365,33 +366,47 @@ class TimerWindow(QMainWindow):
             event.accept()
 
 def main():
-    """Main function with enhanced error handling."""
+    """Main entry point with enhanced initialization."""
     try:
+        # Initialize required directories
+        base_dir = Path(__file__).parent.parent
+        for dir_path in ['data/logs', 'data/backup', 'data/config']:
+            (base_dir / dir_path).mkdir(parents=True, exist_ok=True)
+            
+        # Check admin privileges
+        if not ctypes.windll.shell32.IsUserAnAdmin():
+            logger.warning("Application is not running with administrator privileges")
+            QMessageBox.warning(
+                None,
+                "Administrator Rights Required",
+                "Some features may not work without administrator privileges.\n"
+                "Please restart the application as administrator."
+            )
+            
         app = QApplication(sys.argv)
+        app.setStyle(QStyleFactory.create('Fusion'))
         
-        # Parse command line arguments
-        if len(sys.argv) < 2:
-            logger.error("End time argument required")
-            return 1
-            
-        try:
-            end_time = datetime.fromisoformat(sys.argv[1])
-        except ValueError:
-            logger.error("Invalid end time format. Use ISO format.")
-            return 1
-            
-        # Setup update file
-        update_file = Path(__file__).parent.parent / 'data' / 'timer_update.json'
-        update_file.parent.mkdir(parents=True, exist_ok=True)
+        # Set application-wide font
+        font = QFont("Segoe UI", 10)
+        app.setFont(font)
         
-        # Create and show window
-        window = TimerWindow(end_time, update_file)
+        # Create and show the main window
+        window = TimerWindow(
+            end_time=datetime.now() + timedelta(hours=1),
+            update_file=base_dir / 'data' / 'timer_update.json'
+        )
         window.show()
         
         return app.exec()
+        
     except Exception as e:
-        logger.error(f"Error in main: {e}")
+        logger.critical(f"Fatal error in main: {e}")
+        QMessageBox.critical(
+            None,
+            "Fatal Error",
+            f"Application failed to start: {e}\nPlease check the logs for details."
+        )
         return 1
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     sys.exit(main()) 

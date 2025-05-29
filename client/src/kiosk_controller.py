@@ -193,7 +193,10 @@ class KioskController(QObject):
             return
 
         try:
-            for proc in psutil.process_iter(['pid', 'name', 'exe', 'username']):
+            # Add a small delay to prevent high CPU usage
+            time.sleep(0.5)
+            
+            for proc in psutil.process_iter(['pid', 'name', 'exe', 'username', 'cpu_percent']):
                 try:
                     process_name = proc.info['name'].lower()
                     
@@ -222,16 +225,21 @@ class KioskController(QObject):
                         self.process_cache[process_name] = proc.pid
                         continue
                     
+                    # Check CPU usage before killing
+                    if proc.info['cpu_percent'] > 90:  # High CPU usage
+                        logger.warning(f"High CPU usage detected for process: {process_name}")
+                        continue
+                    
                     # Kill unauthorized process
                     logger.info(f"Blocking unauthorized process: {process_name} (PID: {proc.pid})")
                     proc.kill()
                     self.process_blocked.emit(process_name)
-                    time.sleep(0.1)  # Prevent CPU overload
                     
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                     continue
                 except Exception as e:
                     logger.error(f"Error monitoring process {process_name}: {e}")
+                    
         except Exception as e:
             logger.error(f"Error in process monitor: {e}")
 
