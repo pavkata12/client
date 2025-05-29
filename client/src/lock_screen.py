@@ -507,7 +507,7 @@ class LockScreen(QWidget):
             self.connection_progress.setVisible(True)
             self.status_label.setText("Connecting to server...")
             
-            if not self.network.connect(self.server_ip, self.server_port):
+            if not self.network.connect_to_server(self.server_ip, self.server_port):
                 self.connection_progress.setVisible(False)
                 self.status_label.setText("Connection failed")
                 self.start_reconnect_countdown(30)
@@ -531,7 +531,7 @@ class LockScreen(QWidget):
             self.connection_progress.setVisible(True)
             self.status_label.setText("Connecting to server...")
             
-            if not self.network.connect(server_ip, server_port):
+            if not self.network.connect_to_server(server_ip, server_port):
                 self.connection_progress.setVisible(False)
                 self.status_label.setText("Connection failed")
                 QMessageBox.critical(self, "Error", "Failed to connect to server")

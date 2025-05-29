@@ -20,3 +20,17 @@ Supported signatures:
   PySide6.QtCore.QObject.connect(signal: bytes | bytearray | memoryview, receiver: PySide6.QtCore.QObject, method: bytes | bytearray | memoryview, /, type: PySide6.QtCore.Qt.ConnectionType = Instance(Qt.AutoConnection))
   PySide6.QtCore.QObject.connect(signal: bytes | bytearray | memoryview, functor: collections.abc.Callable[..., typing.Any], /, type: PySide6.QtCore.Qt.ConnectionType = Instance(Qt.AutoConnection))
 2025-05-29 22:45:48,119 - network_manager - INFO - Disconnected from server
+2025-05-29 22:53:21,297 - network_manager - INFO - Registered handler for message type: start_session
+2025-05-29 22:53:21,298 - network_manager - INFO - Registered handler for message type: end_session
+2025-05-29 22:53:21,298 - network_manager - INFO - Registered handler for message type: extend_session
+2025-05-29 22:53:21,299 - network_manager - INFO - Registered handler for message type: pause_session
+2025-05-29 22:53:21,299 - network_manager - INFO - Registered handler for message type: resume_session
+2025-05-29 22:53:21,300 - network_manager - INFO - Registered handler for message type: lock_computer
+2025-05-29 22:53:21,300 - network_manager - INFO - Registered handler for message type: shutdown_computer
+2025-05-29 22:53:21,301 - network_manager - INFO - Registered handler for message type: maintenance_mode
+2025-05-29 22:53:21,301 - network_manager - INFO - Registered handler for message type: computer_removed
+2025-05-29 22:53:21,301 - network_manager - INFO - Registered handler for message type: connection_lost
+2025-05-29 22:53:21,302 - network_manager - INFO - Registered handler for message type: allowed_apps_update
+2025-05-29 22:53:21,315 - network_manager - INFO - Connected to server 192.168.7.4:5000
+2025-05-29 22:53:23,928 - network_manager - INFO - Connection lost. Attempting to reconnect in 5.0 seconds...
+2025-05-29 22:53:24,318 - network_manager - INFO - Disconnected from server
