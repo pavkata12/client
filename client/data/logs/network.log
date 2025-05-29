@@ -1,0 +1,22 @@
+2025-05-29 22:45:43,843 - network_manager - INFO - Registered handler for message type: start_session
+2025-05-29 22:45:43,844 - network_manager - INFO - Registered handler for message type: end_session
+2025-05-29 22:45:43,844 - network_manager - INFO - Registered handler for message type: extend_session
+2025-05-29 22:45:43,845 - network_manager - INFO - Registered handler for message type: pause_session
+2025-05-29 22:45:43,845 - network_manager - INFO - Registered handler for message type: resume_session
+2025-05-29 22:45:43,846 - network_manager - INFO - Registered handler for message type: lock_computer
+2025-05-29 22:45:43,846 - network_manager - INFO - Registered handler for message type: shutdown_computer
+2025-05-29 22:45:43,847 - network_manager - INFO - Registered handler for message type: maintenance_mode
+2025-05-29 22:45:43,847 - network_manager - INFO - Registered handler for message type: computer_removed
+2025-05-29 22:45:43,848 - network_manager - INFO - Registered handler for message type: connection_lost
+2025-05-29 22:45:43,848 - network_manager - INFO - Registered handler for message type: allowed_apps_update
+2025-05-29 22:45:43,887 - __main__ - ERROR - Error connecting to server: 'PySide6.QtCore.QObject.connect' called with wrong argument types:
+  PySide6.QtCore.QObject.connect(str, int)
+Supported signatures:
+  PySide6.QtCore.QObject.connect(sender: PySide6.QtCore.QObject, signal: PySide6.QtCore.QMetaMethod, receiver: PySide6.QtCore.QObject, method: PySide6.QtCore.QMetaMethod, /, type: PySide6.QtCore.Qt.ConnectionType = Instance(Qt.AutoConnection))
+  PySide6.QtCore.QObject.connect(sender: PySide6.QtCore.QObject, signal: bytes | bytearray | memoryview, context: PySide6.QtCore.QObject, functor: collections.abc.Callable[..., typing.Any], /, type: PySide6.QtCore.Qt.ConnectionType = Instance(Qt.AutoConnection))
+  PySide6.QtCore.QObject.connect(sender: PySide6.QtCore.QObject, signal: bytes | bytearray | memoryview, receiver: PySide6.QtCore.QObject, member: bytes | bytearray | memoryview, /, type: PySide6.QtCore.Qt.ConnectionType = Instance(Qt.AutoConnection))
+  PySide6.QtCore.QObject.connect(sender: PySide6.QtCore.QObject, signal: bytes | bytearray | memoryview, functor: collections.abc.Callable[..., typing.Any], /, type: PySide6.QtCore.Qt.ConnectionType = Instance(Qt.AutoConnection))
+  PySide6.QtCore.QObject.connect(sender: PySide6.QtCore.QObject, signal: bytes | bytearray | memoryview, member: bytes | bytearray | memoryview, /, type: PySide6.QtCore.Qt.ConnectionType = Instance(Qt.AutoConnection))
+  PySide6.QtCore.QObject.connect(signal: bytes | bytearray | memoryview, receiver: PySide6.QtCore.QObject, method: bytes | bytearray | memoryview, /, type: PySide6.QtCore.Qt.ConnectionType = Instance(Qt.AutoConnection))
+  PySide6.QtCore.QObject.connect(signal: bytes | bytearray | memoryview, functor: collections.abc.Callable[..., typing.Any], /, type: PySide6.QtCore.Qt.ConnectionType = Instance(Qt.AutoConnection))
+2025-05-29 22:45:48,119 - network_manager - INFO - Disconnected from server

@@ -225,7 +225,7 @@ class LockScreen(QWidget):
         }
         
         for event, handler in handlers.items():
-            self.network.register_handler(event, handler)
+            self.network.register_message_handler(event, handler)
 
     def handle_start_session(self, message: Dict[str, Any]):
         """Handle session start event."""
