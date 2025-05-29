@@ -1,215 +1,74 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QLineEdit, QPushButton, QMessageBox
+    QLineEdit, QPushButton, QMessageBox, QApplication,
+    QProgressBar, QFrame
 )
-from PySide6.QtCore import Qt, QEvent, QTimer
-from PySide6.QtGui import QFont
+from PySide6.QtCore import Qt, QEvent, QTimer, Signal, Slot
+from PySide6.QtGui import QFont, QPalette, QColor
 import os
 import json
 import keyboard
+import logging
+from datetime import datetime, timedelta
 from network_manager import NetworkManager
 import sys
 import subprocess
-from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Optional, Dict, Any
+from dataclasses import dataclass
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(Path(__file__).parent.parent / 'data' / 'logs' / 'lock_screen.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+@dataclass
+class SessionState:
+    """State management for the lock screen session."""
+    active: bool = False
+    session_id: Optional[str] = None
+    end_time: Optional[datetime] = None
+    paused: bool = False
+    pause_time: Optional[datetime] = None
+    remaining_time: Optional[timedelta] = None
+    timer_process: Optional[subprocess.Popen] = None
 
 class LockScreen(QWidget):
-    """A fullscreen black lock screen with connection UI and session logic."""
+    """Enhanced fullscreen lock screen with connection UI and session logic."""
+    
+    # Signals
+    session_started = Signal(str, int)  # session_id, duration
+    session_ended = Signal()
+    session_paused = Signal()
+    session_resumed = Signal()
+    connection_status_changed = Signal(bool)  # is_connected
     
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.state = SessionState()
         self.setup_ui()
         self.setup_window_properties()
-        self.connection_timer = QTimer(self)
-        self.connection_timer.timeout.connect(self.try_reconnect)
-        self.server_ip = None
-        self.server_port = None
-        self.connected = False
-        self.network = NetworkManager()
-        self.session_active = False
-        self.timer_process = None
-        self.timer_update_file = os.path.join(os.path.dirname(__file__), '..', 'data', 'timer_update.json')
-        self.pause_time = None
-        self.remaining_time_at_pause = None
-        self.session_end_time = None
-        self.paused = False
-        self.load_server_config()
+        self.setup_timers()
+        self.setup_network()
+        self.load_config()
         self.register_handlers()
-        # Add timer to check if timer UI has exited
-        self.timer_check = QTimer(self)
-        self.timer_check.timeout.connect(self.check_timer_process)
-        self.timer_check.start(2000)
+        
+        # Connect to server if config exists
         if self.server_ip and self.server_port:
             self.set_connection_ui_visible(False)
             self.status_label.setText("Connecting to server...")
             self.try_connect_and_start_timer()
         else:
             self.set_connection_ui_visible(True)
-        
-    def register_handlers(self):
-        self.network.register_handler("start_session", self.handle_start_session)
-        self.network.register_handler("end_session", self.handle_end_session)
-        self.network.register_handler("extend_session", self.handle_extend_session)
-        self.network.register_handler("pause_session", self.handle_pause_session)
-        self.network.register_handler("resume_session", self.handle_resume_session)
-        self.network.register_handler("lock_computer", self.handle_lock_computer)
-        self.network.register_handler("shutdown_computer", self.handle_shutdown_computer)
-        self.network.register_handler("maintenance_mode", self.handle_maintenance_mode)
-        self.network.register_handler("computer_removed", self.handle_computer_removed)
-        self.network.register_handler("connection_lost", self.handle_connection_lost)
-        self.network.register_handler("allowed_apps_update", self.handle_allowed_apps_update)
 
-    def handle_start_session(self, message):
-        session_id = message['session_id']
-        duration = message['duration']
-        self.session_active = True
-        self.paused = False
-        self.pause_time = None
-        self.remaining_time_at_pause = None
-        self.session_end_time = datetime.now() + timedelta(hours=duration)
-        self.launch_timer_ui(self.session_end_time)
-        self.status_label.setText(f"Session {session_id} started for {duration} hours")
-
-    def handle_end_session(self, message):
-        self.session_active = False
-        self.paused = False
-        self.pause_time = None
-        self.remaining_time_at_pause = None
-        self.session_end_time = None
-        self.close_timer_ui()
-        self.status_label.setText("Session ended")
-
-    def handle_extend_session(self, message):
-        minutes = message.get('minutes', 0)
-        if self.session_active:
-            if self.paused and self.remaining_time_at_pause:
-                self.remaining_time_at_pause += timedelta(minutes=minutes)
-            elif self.session_end_time:
-                self.session_end_time += timedelta(minutes=minutes)
-                # Update the timer UI via a file if running
-                if self.timer_process and self.timer_process.poll() is None:
-                    with open(self.timer_update_file, 'w') as f:
-                        json.dump({'end_time': self.session_end_time.isoformat()}, f)
-            self.status_label.setText(f"Session extended by {minutes} minutes")
-
-    def handle_pause_session(self, message):
-        if self.session_active and not self.paused:
-            self.paused = True
-            self.pause_time = datetime.now()
-            if self.session_end_time:
-                self.remaining_time_at_pause = self.session_end_time - self.pause_time
-            self.close_timer_ui()
-            self.status_label.setText(f"Session paused at: {self.pause_time.strftime('%Y-%m-%d %H:%M:%S')}")
-
-    def handle_resume_session(self, message):
-        if self.session_active and self.paused and self.remaining_time_at_pause:
-            self.paused = False
-            new_end_time = datetime.now() + self.remaining_time_at_pause
-            self.session_end_time = new_end_time
-            self.launch_timer_ui(self.session_end_time)
-            self.status_label.setText("Session resumed")
-            self.pause_time = None
-            self.remaining_time_at_pause = None
-
-    def handle_lock_computer(self, message):
-        import ctypes
-        ctypes.windll.user32.LockWorkStation()
-        self.status_label.setText("Computer locked by admin")
-
-    def handle_shutdown_computer(self, message):
-        os.system("shutdown /s /t 1")
-
-    def handle_maintenance_mode(self, message):
-        QMessageBox.information(self, "Maintenance Mode", "This computer is now in maintenance mode. Please contact staff.")
-        self.setEnabled(False)
-
-    def handle_computer_removed(self, message):
-        QMessageBox.information(self, "Computer Removed", "This computer has been removed from the system. The application will now close.")
-        QApplication.quit()
-
-    def handle_connection_lost(self, message):
-        self.status_label.setText("Connection lost - attempting to reconnect...")
-        if self.session_active:
-            self.close_timer_ui()
-
-    def handle_allowed_apps_update(self, message):
-        print("DEBUG: Received allowed_apps_update", message)
-        allowed_apps = message.get('allowed_apps')
-        if allowed_apps is not None:
-            config_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'allowed_apps.json')
-            try:
-                with open(config_path, 'w') as f:
-                    json.dump(allowed_apps, f, indent=2)
-                print("Allowed apps updated from server.")
-                # Try to force TimerWindow to reload if running (best effort)
-                # This will only work if TimerWindow is in the same process
-                try:
-                    import psutil
-                    for proc in psutil.process_iter(['name', 'cmdline']):
-                        if 'main.py' in ' '.join(proc.info.get('cmdline', [])):
-                            # Optionally, send a signal or message here if you implement IPC
-                            print("DEBUG: TimerWindow process detected (cannot reload in separate process without IPC)")
-                except Exception as e:
-                    print(f"DEBUG: Could not check for TimerWindow process: {e}")
-            except Exception as e:
-                print(f"Error saving allowed apps from server: {e}")
-
-    def launch_timer_ui(self, end_time):
-        self.hide()  # Hide lock screen
-        main_py = os.path.join(os.path.dirname(__file__), 'main.py')
-        python_exe = sys.executable
-        end_time_str = end_time.isoformat()
-        # Write initial end_time to the update file
-        with open(self.timer_update_file, 'w') as f:
-            json.dump({'end_time': end_time_str}, f)
-        self.timer_process = subprocess.Popen([python_exe, main_py, end_time_str])
-
-    def close_timer_ui(self):
-        if self.timer_process and self.timer_process.poll() is None:
-            self.timer_process.terminate()
-            self.timer_process = None
-        self.showFullScreen()  # Show lock screen again
-        self.activateWindow()
-
-    def setup_window_properties(self):
-        """Configure window properties for lock screen."""
-        # Make window fullscreen and always on top, not minimizable
-        self.setWindowFlags(
-            Qt.Window |
-            Qt.FramelessWindowHint |
-            Qt.WindowStaysOnTopHint |
-            Qt.CustomizeWindowHint  # disables minimize/maximize/close buttons
-        )
-        # Set black background
-        self.setStyleSheet("""
-            QWidget {
-                background-color: black;
-                color: white;
-            }
-            QLabel {
-                color: white;
-                font-size: 14px;
-            }
-            QLineEdit {
-                background-color: #333;
-                color: white;
-                border: 1px solid #555;
-                padding: 5px;
-                border-radius: 3px;
-            }
-            QPushButton {
-                background-color: #444;
-                color: white;
-                border: 1px solid #666;
-                padding: 5px 15px;
-                border-radius: 3px;
-            }
-            QPushButton:hover {
-                background-color: #555;
-            }
-        """)
-        
     def setup_ui(self):
-        """Setup the lock screen UI."""
+        """Setup the lock screen UI with enhanced styling."""
         layout = QVBoxLayout(self)
         layout.setSpacing(20)
         layout.setContentsMargins(50, 50, 50, 50)
@@ -236,6 +95,12 @@ class LockScreen(QWidget):
         countdown_font.setBold(True)
         self.countdown_label.setFont(countdown_font)
         layout.addWidget(self.countdown_label)
+        
+        # Connection progress
+        self.connection_progress = QProgressBar()
+        self.connection_progress.setRange(0, 0)  # Indeterminate progress
+        self.connection_progress.setVisible(False)
+        layout.addWidget(self.connection_progress)
         
         # Server connection controls
         server_layout = QHBoxLayout()
@@ -269,144 +134,505 @@ class LockScreen(QWidget):
         # Add some spacing
         layout.addStretch()
         
-    def set_connection_ui_visible(self, visible):
-        self.ip_input.setVisible(visible)
-        self.port_input.setVisible(visible)
-        self.connect_btn.setVisible(visible)
-        self.ip_label.setVisible(visible)
-        self.port_label.setVisible(visible)
+        # Apply styles
+        self.setup_styles()
 
-    def load_server_config(self):
-        config_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'client_config.json')
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, 'r') as f:
-                    config = json.load(f)
-                    self.server_ip = config.get('server_ip')
-                    self.server_port = config.get('server_port')
-            except Exception:
+    def setup_styles(self):
+        """Setup application-wide styles."""
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #2c3e50;
+                color: #ecf0f1;
+            }
+            QLabel {
+                color: #ecf0f1;
+                font-size: 14px;
+            }
+            QLineEdit {
+                background-color: #34495e;
+                color: #ecf0f1;
+                border: 1px solid #7f8c8d;
+                padding: 5px;
+                border-radius: 3px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #3498db;
+            }
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+            QPushButton:pressed {
+                background-color: #2472a4;
+            }
+            QProgressBar {
+                border: 2px solid #34495e;
+                border-radius: 5px;
+                text-align: center;
+                height: 20px;
+            }
+            QProgressBar::chunk {
+                background-color: #3498db;
+                border-radius: 3px;
+            }
+        """)
+
+    def setup_window_properties(self):
+        """Configure window properties for lock screen."""
+        try:
+            # Make window fullscreen and always on top
+            self.setWindowFlags(
+                Qt.Window |
+                Qt.FramelessWindowHint |
+                Qt.WindowStaysOnTopHint |
+                Qt.CustomizeWindowHint
+            )
+        except Exception as e:
+            logger.error(f"Error setting up window properties: {e}")
+
+    def setup_timers(self):
+        """Setup timers for reconnection and status updates."""
+        self.connection_timer = QTimer()
+        self.connection_timer.timeout.connect(self.try_connect_and_start_timer)
+        self.status_timer = QTimer()
+        self.status_timer.timeout.connect(self.update_status)
+
+    def setup_network(self):
+        """Initialize network manager."""
+        self.network = NetworkManager()
+        self.network.connection_status_changed.connect(self.handle_connection_status)
+
+    def register_handlers(self):
+        """Register network event handlers."""
+        handlers = {
+            "start_session": self.handle_start_session,
+            "end_session": self.handle_end_session,
+            "extend_session": self.handle_extend_session,
+            "pause_session": self.handle_pause_session,
+            "resume_session": self.handle_resume_session,
+            "lock_computer": self.handle_lock_computer,
+            "shutdown_computer": self.handle_shutdown_computer,
+            "maintenance_mode": self.handle_maintenance_mode,
+            "computer_removed": self.handle_computer_removed,
+            "connection_lost": self.handle_connection_lost,
+            "allowed_apps_update": self.handle_allowed_apps_update
+        }
+        
+        for event, handler in handlers.items():
+            self.network.register_handler(event, handler)
+
+    def handle_start_session(self, message: Dict[str, Any]):
+        """Handle session start event."""
+        try:
+            session_id = message.get('session_id')
+            duration = message.get('duration')
+            
+            if not session_id or not duration:
+                logger.error("Invalid session data received")
+                return
+                
+            self.state.active = True
+            self.state.paused = False
+            self.state.pause_time = None
+            self.state.remaining_time = None
+            self.state.session_id = session_id
+            self.state.end_time = datetime.now() + timedelta(hours=duration)
+            
+            self.launch_timer_ui(self.state.end_time)
+            self.status_label.setText(f"Session {session_id} started for {duration} hours")
+            self.session_started.emit(session_id, duration)
+            
+            logger.info(f"Session {session_id} started for {duration} hours")
+            
+        except Exception as e:
+            logger.error(f"Error handling start session: {e}")
+            QMessageBox.critical(self, "Error", "Failed to start session")
+
+    def handle_end_session(self, message: Dict[str, Any]):
+        """Handle session end event."""
+        try:
+            if not self.state.active:
+                return
+                
+            self.state.active = False
+            self.state.session_id = None
+            self.state.end_time = None
+            self.state.paused = False
+            self.state.pause_time = None
+            self.state.remaining_time = None
+            
+            self.close_timer_ui()
+            self.status_label.setText("Session ended")
+            self.session_ended.emit()
+            
+            logger.info("Session ended")
+            
+        except Exception as e:
+            logger.error(f"Error handling end session: {e}")
+            QMessageBox.critical(self, "Error", "Failed to end session")
+
+    def handle_extend_session(self, message: Dict[str, Any]):
+        """Handle session extension event."""
+        try:
+            minutes = message.get('minutes', 0)
+            
+            if not minutes or not self.state.active:
+                return
+                
+            if self.state.end_time:
+                self.state.end_time += timedelta(minutes=minutes)
+                self.status_label.setText(f"Session extended by {minutes} minutes")
+                
+            logger.info(f"Session extended by {minutes} minutes")
+            
+        except Exception as e:
+            logger.error(f"Error handling extend session: {e}")
+            QMessageBox.critical(self, "Error", "Failed to extend session")
+
+    def handle_pause_session(self, message: Dict[str, Any]):
+        """Handle session pause event."""
+        try:
+            if not self.state.active or self.state.paused:
+                return
+                
+            self.state.paused = True
+            self.state.pause_time = datetime.now()
+            
+            if self.state.end_time:
+                self.state.remaining_time = self.state.end_time - self.state.pause_time
+                
+            self.status_label.setText("Session paused")
+            self.session_paused.emit()
+            
+            logger.info("Session paused")
+            
+        except Exception as e:
+            logger.error(f"Error handling pause session: {e}")
+            QMessageBox.critical(self, "Error", "Failed to pause session")
+
+    def handle_resume_session(self, message: Dict[str, Any]):
+        """Handle session resume event."""
+        try:
+            if not self.state.active or not self.state.paused:
+                return
+                
+            self.state.paused = False
+            self.state.pause_time = None
+            
+            if self.state.remaining_time:
+                self.state.end_time = datetime.now() + self.state.remaining_time
+                self.state.remaining_time = None
+                
+            self.status_label.setText("Session resumed")
+            self.session_resumed.emit()
+            
+            logger.info("Session resumed")
+            
+        except Exception as e:
+            logger.error(f"Error handling resume session: {e}")
+            QMessageBox.critical(self, "Error", "Failed to resume session")
+
+    def handle_lock_computer(self, message: Dict[str, Any]):
+        """Handle computer lock event."""
+        try:
+            if sys.platform == 'win32':
+                os.system('rundll32.exe user32.dll,LockWorkStation')
+            logger.info("Computer locked")
+            
+        except Exception as e:
+            logger.error(f"Error locking computer: {e}")
+            QMessageBox.critical(self, "Error", "Failed to lock computer")
+
+    def handle_shutdown_computer(self, message: Dict[str, Any]):
+        """Handle computer shutdown event."""
+        try:
+            if sys.platform == 'win32':
+                os.system('shutdown /s /t 0')
+            logger.info("Computer shutdown initiated")
+            
+        except Exception as e:
+            logger.error(f"Error shutting down computer: {e}")
+            QMessageBox.critical(self, "Error", "Failed to shutdown computer")
+
+    def handle_maintenance_mode(self, message: Dict[str, Any]):
+        """Handle maintenance mode event."""
+        try:
+            self.handle_end_session(message)
+            self.network.disconnect()
+            QMessageBox.information(self, "Maintenance Mode", "Computer is entering maintenance mode")
+            logger.info("Entering maintenance mode")
+            
+        except Exception as e:
+            logger.error(f"Error entering maintenance mode: {e}")
+            QMessageBox.critical(self, "Error", "Failed to enter maintenance mode")
+
+    def handle_computer_removed(self, message: Dict[str, Any]):
+        """Handle computer removal event."""
+        try:
+            self.handle_end_session(message)
+            self.network.disconnect()
+            QMessageBox.information(self, "Computer Removed", "This computer has been removed from the network")
+            logger.info("Computer removed from network")
+            
+        except Exception as e:
+            logger.error(f"Error handling computer removal: {e}")
+            QMessageBox.critical(self, "Error", "Failed to handle computer removal")
+
+    def handle_connection_lost(self, message: Dict[str, Any]):
+        """Handle connection lost event."""
+        try:
+            self.status_label.setText("Connection lost")
+            self.start_reconnect_countdown(30)  # 30 seconds countdown
+            logger.info("Connection lost, starting reconnect countdown")
+            
+        except Exception as e:
+            logger.error(f"Error handling connection lost: {e}")
+            QMessageBox.critical(self, "Error", "Failed to handle connection loss")
+
+    def handle_allowed_apps_update(self, message: Dict[str, Any]):
+        """Handle allowed apps update event."""
+        try:
+            allowed_apps = message.get('allowed_apps', [])
+            if not allowed_apps:
+                return
+                
+            config_path = Path(__file__).parent.parent / 'data' / 'allowed_apps.json'
+            with open(config_path, 'w') as f:
+                json.dump(allowed_apps, f, indent=4)
+                
+            logger.info("Allowed apps updated")
+            
+        except Exception as e:
+            logger.error(f"Error handling allowed apps update: {e}")
+            QMessageBox.critical(self, "Error", "Failed to update allowed apps")
+
+    def launch_timer_ui(self, end_time: datetime):
+        """Launch the timer UI process."""
+        try:
+            if self.state.timer_process:
+                self.close_timer_ui()
+                
+            timer_script = Path(__file__).parent / 'timer_ui.py'
+            if not timer_script.exists():
+                logger.error("Timer UI script not found")
+                return
+                
+            self.state.timer_process = subprocess.Popen(
+                [sys.executable, str(timer_script), end_time.isoformat()],
+                creationflags=subprocess.CREATE_NEW_CONSOLE
+            )
+            
+            logger.info("Timer UI launched")
+            
+        except Exception as e:
+            logger.error(f"Error launching timer UI: {e}")
+            QMessageBox.critical(self, "Error", "Failed to launch timer UI")
+
+    def close_timer_ui(self):
+        """Close the timer UI process."""
+        try:
+            if self.state.timer_process:
+                self.state.timer_process.terminate()
+                self.state.timer_process = None
+                logger.info("Timer UI closed")
+                
+        except Exception as e:
+            logger.error(f"Error closing timer UI: {e}")
+            QMessageBox.critical(self, "Error", "Failed to close timer UI")
+
+    def update_timer_ui(self):
+        """Update the timer UI display."""
+        try:
+            if not self.state.active or not self.state.end_time:
+                return
+                
+            remaining = self.state.end_time - datetime.now()
+            if remaining.total_seconds() <= 0:
+                self.handle_end_session({})
+                return
+                
+            hours = int(remaining.total_seconds() // 3600)
+            minutes = int((remaining.total_seconds() % 3600) // 60)
+            seconds = int(remaining.total_seconds() % 60)
+            
+            self.status_label.setText(f"Time remaining: {hours:02d}:{minutes:02d}:{seconds:02d}")
+            
+        except Exception as e:
+            logger.error(f"Error updating timer UI: {e}")
+
+    def set_connection_ui_visible(self, visible: bool):
+        """Set the visibility of connection UI elements."""
+        try:
+            self.ip_label.setVisible(visible)
+            self.ip_input.setVisible(visible)
+            self.port_label.setVisible(visible)
+            self.port_input.setVisible(visible)
+            self.connect_btn.setVisible(visible)
+            
+        except Exception as e:
+            logger.error(f"Error setting connection UI visibility: {e}")
+
+    def load_config(self):
+        """Load configuration from file."""
+        try:
+            config_path = Path(__file__).parent.parent / 'data' / 'client_config.json'
+            if not config_path.exists():
                 self.server_ip = None
                 self.server_port = None
-        else:
+                return
+                
+            with open(config_path) as f:
+                config = json.load(f)
+                
+            self.server_ip = config.get('server_ip')
+            self.server_port = config.get('server_port', 5000)
+            
+        except Exception as e:
+            logger.error(f"Error loading config: {e}")
             self.server_ip = None
             self.server_port = None
 
-    def save_server_config(self, ip, port):
-        config_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'client_config.json')
-        try:
-            with open(config_path, 'w') as f:
-                json.dump({'server_ip': ip, 'server_port': port}, f)
-        except Exception:
-            pass
-
     def try_connect_and_start_timer(self):
-        if self.network.connect(self.server_ip, self.server_port):
-            self.connected = True
-            self.status_label.setText("Connected to server")
-        else:
-            self.connected = False
-            self.connection_timer.start(5000)
-            self.status_label.setText("Failed to connect. Retrying...")
-            self.start_reconnect_countdown(5)
+        """Attempt to connect to server and start timer."""
+        try:
+            if not self.server_ip or not self.server_port:
+                return
+                
+            self.connection_progress.setVisible(True)
+            self.status_label.setText("Connecting to server...")
+            
+            if not self.network.connect(self.server_ip, self.server_port):
+                self.connection_progress.setVisible(False)
+                self.status_label.setText("Connection failed")
+                self.start_reconnect_countdown(30)
+                
+        except Exception as e:
+            logger.error(f"Error connecting to server: {e}")
+            self.connection_progress.setVisible(False)
+            self.status_label.setText("Connection error")
+            self.start_reconnect_countdown(30)
 
     def handle_connect(self):
         """Handle connect button click."""
         try:
-            ip = self.ip_input.text().strip()
-            port = int(self.port_input.text().strip())
-            if not ip:
-                QMessageBox.warning(self, "Error", "Please enter a server IP address")
-                return
-            self.save_server_config(ip, port)
-            self.server_ip = ip
-            self.server_port = port
-            self.set_connection_ui_visible(False)
-            self.status_label.setText("Connecting to server...")
-            self.try_connect_and_start_timer()
-        except ValueError:
-            QMessageBox.warning(self, "Error", "Please enter a valid port number")
+            server_ip = self.ip_input.text().strip()
+            server_port = int(self.port_input.text().strip())
             
-    def start_reconnect_countdown(self, seconds=5):
-        self._reconnect_seconds = seconds
-        self.countdown_label.setText(f"Reconnecting in {self._reconnect_seconds}...")
-        if not hasattr(self, '_countdown_timer'):
-            self._countdown_timer = QTimer(self)
-            self._countdown_timer.timeout.connect(self._update_reconnect_countdown)
-        self._countdown_timer.start(1000)
-
-    def _update_reconnect_countdown(self):
-        self._reconnect_seconds -= 1
-        if self._reconnect_seconds > 0:
-            self.countdown_label.setText(f"Reconnecting in {self._reconnect_seconds}...")
-        else:
-            self.countdown_label.setText("")
-            self._countdown_timer.stop()
-
-    def try_reconnect(self):
-        if not self.connected and self.server_ip and self.server_port:
+            if not server_ip:
+                QMessageBox.warning(self, "Error", "Please enter server IP")
+                return
+                
+            self.connection_progress.setVisible(True)
             self.status_label.setText("Connecting to server...")
-            if self.network.connect(self.server_ip, self.server_port):
-                self.connected = True
-                self.connection_timer.stop()
-                self.status_label.setText("Connected to server")
+            
+            if not self.network.connect(server_ip, server_port):
+                self.connection_progress.setVisible(False)
+                self.status_label.setText("Connection failed")
+                QMessageBox.critical(self, "Error", "Failed to connect to server")
+                return
+                
+            # Save config
+            config_path = Path(__file__).parent.parent / 'data' / 'client_config.json'
+            config = {
+                'server_ip': server_ip,
+                'server_port': server_port
+            }
+            
+            with open(config_path, 'w') as f:
+                json.dump(config, f, indent=4)
+                
+            self.server_ip = server_ip
+            self.server_port = server_port
+            
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Invalid port number")
+            self.connection_progress.setVisible(False)
+            self.status_label.setText("Invalid port")
+        except Exception as e:
+            logger.error(f"Error handling connect: {e}")
+            self.connection_progress.setVisible(False)
+            self.status_label.setText("Connection error")
+            QMessageBox.critical(self, "Error", str(e))
+
+    def start_reconnect_countdown(self, seconds: int):
+        """Start the reconnection countdown."""
+        try:
+            self.countdown_label.setText(f"Reconnecting in {seconds} seconds...")
+            self.countdown_label.setVisible(True)
+            self.connection_timer.start(seconds * 1000)
+            
+        except Exception as e:
+            logger.error(f"Error starting reconnect countdown: {e}")
+
+    def update_reconnect_countdown(self, seconds: int):
+        """Update the reconnection countdown display."""
+        try:
+            self.countdown_label.setText(f"Reconnecting in {seconds} seconds...")
+            
+        except Exception as e:
+            logger.error(f"Error updating reconnect countdown: {e}")
+
+    def handle_connection_status(self, is_connected: bool):
+        """Handle connection status change."""
+        try:
+            self.connection_progress.setVisible(False)
+            self.countdown_label.setVisible(False)
+            
+            if is_connected:
+                self.status_label.setText("Connected")
+                self.set_connection_ui_visible(False)
             else:
-                self.connected = False
-                self.status_label.setText("Failed to connect. Retrying...")
-                self.start_reconnect_countdown(5)
+                self.status_label.setText("Disconnected")
+                self.set_connection_ui_visible(True)
+                
+            self.connection_status_changed.emit(is_connected)
+            
+        except Exception as e:
+            logger.error(f"Error handling connection status: {e}")
 
-    def update_status(self, status):
-        """Update the status label."""
-        self.status_label.setText(f"Status: {status}")
-        if status == "Connected to server":
-            self.connected = True
-            self.connection_timer.stop()
-            self.countdown_label.setText("")
-        else:
-            self.connected = False
-            if self.server_ip and self.server_port:
-                if not self.connection_timer.isActive():
-                    self.connection_timer.start(5000)  # Try to reconnect every 5 seconds
-                    self.status_label.setText("Connection lost - attempting to reconnect...")
-                    self.start_reconnect_countdown(5)
-        
-    def showEvent(self, event):
-        """Handle show event to ensure window is fullscreen."""
-        super().showEvent(event)
-        self.showFullScreen()
-        # Block Windows keys when lock screen is shown
-        keyboard.block_key('left windows')
-        keyboard.block_key('right windows')
+    def update_status(self):
+        """Update the status display."""
+        try:
+            if not self.state.active:
+                return
+                
+            if self.state.paused:
+                self.status_label.setText("Session paused")
+                return
+                
+            self.update_timer_ui()
+            
+        except Exception as e:
+            logger.error(f"Error updating status: {e}")
 
-    def hideEvent(self, event):
-        super().hideEvent(event)
-        # Unblock Windows keys when lock screen is hidden
-        keyboard.unblock_key('left windows')
-        keyboard.unblock_key('right windows')
-
-    def changeEvent(self, event):
-        if event.type() == QEvent.WindowStateChange:
-            if self.windowState() & Qt.WindowMinimized:
-                self.showNormal()
-                self.activateWindow()
-        super().changeEvent(event)
-
-    def show_pause_message(self, pause_time_str):
-        self.set_connection_ui_visible(False)
-        self.status_label.setText(f"Session paused at: {pause_time_str}")
-
-    def check_timer_process(self):
-        if self.timer_process and self.timer_process.poll() is not None:
-            self.timer_process = None
-            self.showFullScreen()
-            self.activateWindow()
+    def closeEvent(self, event):
+        """Handle window close event."""
+        try:
+            if self.state.active:
+                self.handle_end_session({})
+            self.network.disconnect()
+            event.accept()
+            
+        except Exception as e:
+            logger.error(f"Error in close event: {e}")
+            event.accept()
 
 def main():
-    from PySide6.QtWidgets import QApplication
-    import sys
-    app = QApplication(sys.argv)
-    lock_screen = LockScreen()
-    lock_screen.showFullScreen()
-    sys.exit(app.exec())
+    """Main entry point for the application."""
+    try:
+        app = QApplication(sys.argv)
+        lock_screen = LockScreen()
+        lock_screen.showFullScreen()
+        sys.exit(app.exec())
+    except Exception as e:
+        logger.error(f"Error in main: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main() 
